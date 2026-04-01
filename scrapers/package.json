@@ -1,0 +1,23 @@
+{
+  "name": "remates-scrapers",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "scrape:remates": "tsx src/run-remates.ts",
+    "scrape:mercado": "tsx src/run-mercado.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@resend/node": "^3.2.0",
+    "@supabase/supabase-js": "^2.43.0",
+    "cheerio": "^1.0.0",
+    "node-fetch": "^3.3.2",
+    "playwright": "^1.44.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.5.0"
+  }
+}
