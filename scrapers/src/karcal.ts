@@ -197,14 +197,16 @@ async function fetchVehiculos(remateExternoId: string, remateUuid: string): Prom
       const detalles = await Promise.all(batch.map(v => fetchDetalle(v.detalleUrl)))
       batch.forEach((v, j) => {
         const d = detalles[j]
+        // Excluir detalleUrl (campo interno, no existe en DB)
+        const { detalleUrl: _url, ...vehiculoBase } = v as VehiculoInput & { detalleUrl: string }
         vehiculos.push({
-          ...v,
-          patente:        d.patente,
-          kilometraje:    d.kilometraje,
-          mandante:       d.mandante,
-          combustible:    d.combustible,
-          traccion:       d.traccion,
-          transmision:    d.transmision,
+          ...vehiculoBase,
+          patente:         d.patente,
+          kilometraje:     d.kilometraje,
+          mandante:        d.mandante,
+          combustible:     d.combustible,
+          traccion:        d.traccion,
+          transmision:     d.transmision,
           estado_vehiculo: d.estado_vehiculo,
         } as VehiculoInput)
       })
