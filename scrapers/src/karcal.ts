@@ -12,8 +12,7 @@ export function parseKarcalPrecio(texto: string): number | null {
   return isNaN(n) || n <= 0 ? null : n
 }
 
-/** Parsea patente, km, mandante, etc. desde la página de detalle */
-async function fetchDetalle(detalleUrl: string): Promise<{
+interface DetalleVehiculo {
   patente: string | null
   kilometraje: number | null
   mandante: string | null
@@ -21,7 +20,18 @@ async function fetchDetalle(detalleUrl: string): Promise<{
   traccion: string | null
   transmision: string | null
   estado_vehiculo: string
-}> {
+  fecha_remate_exacta: string | null
+  url_cav: string | null
+  url_inspeccion: string | null
+}
+
+/** Parsea todos los datos desde la página de detalle de Karcal */
+async function fetchDetalle(detalleUrl: string, vehiculoId: string): Promise<DetalleVehiculo> {
+  const fallback: DetalleVehiculo = {
+    patente: null, kilometraje: null, mandante: null, combustible: null,
+    traccion: null, transmision: null, estado_vehiculo: 'siniestrado',
+    fecha_remate_exacta: null, url_cav: null, url_inspeccion: null,
+  }
   try {
     const res  = await fetch(detalleUrl, { headers: HEADERS })
     const html = await res.text()
@@ -29,7 +39,7 @@ async function fetchDetalle(detalleUrl: string): Promise<{
     const txt  = $('body').text()
 
     const extract = (label: string) => {
-      const m = txt.match(new RegExp(label + '[:\\s]+([\\w\\s.,-]+)', 'i'))
+      const m = txt.match(new RegExp(label + '[:\\s]+([\\w\\s.,-/]+)', 'i'))
       return m?.[1]?.trim().split('\n')[0].trim() ?? null
     }
 
@@ -38,26 +48,49 @@ async function fetchDetalle(detalleUrl: string): Promise<{
 
     // Kilometraje
     const kmTxt = extract('Kilometraje') ?? ''
-    const km    = parseInt(kmTxt.replace(/\./g, '')) || null
+    const km    = parseInt(kmTxt.replace(/\./g, '').replace(/\s/g, '')) || null
 
-    // Mandante (empresa de seguros)
+    // Mandante
     const mandante = extract('Mandante') ?? null
 
-    // Combustible, tracción, transmisión
+    // Especificaciones
     const combustible = extract('Combustible') ?? null
     const traccion    = extract('Tracción') ?? extract('Traccion') ?? null
     const transmision = extract('Transmisión') ?? extract('Transmision') ?? null
 
-    // Estado del vehículo: chatarra, encendio, rodante
+    // Fecha exacta del remate con hora: "Remate: 09-04-2026 15:00"
+    const fechaM = txt.match(/Remate[:\s]+(\d{2}-\d{2}-\d{4})\s+(\d{2}:\d{2})/i)
+    let fecha_remate_exacta: string | null = null
+    if (fechaM) {
+      const [d, mo, y] = fechaM[1].split('-')
+      fecha_remate_exacta = `${y}-${mo}-${d}T${fechaM[2]}:00-04:00`
+    }
+
+    // CAV: patrón /Detalle/DescargarPDF/?bienId=X&CatId=7
+    const cavHref = $('a[href*="DescargarPDF"][href*="CatId=7"]').first().attr('href')
+      ?? `/Detalle/DescargarPDF/?bienId=${vehiculoId}&CatId=7`
+    const url_cav = `${BASE_URL}${cavHref.startsWith('/') ? cavHref : '/' + cavHref}`
+
+    // Inspección General
+    const inspHref = $('a[href*="DescargarPDF"]')
+      .filter((_, el) => /inspecci/i.test($(el).text()))
+      .first().attr('href') ?? null
+    const url_inspeccion = inspHref
+      ? `${BASE_URL}${inspHref.startsWith('/') ? inspHref : '/' + inspHref}`
+      : null
+
+    // Estado del vehículo (condición renderizada en imagen — solo inferencia por texto)
     const txtLower = txt.toLowerCase()
     let estado_vehiculo = 'siniestrado'
-    if (txtLower.includes('chatarra'))              estado_vehiculo = 'chatarra'
-    else if (txtLower.includes('se desplaz'))       estado_vehiculo = 'rodante'
-    else if (txtLower.includes('encendio') || txtLower.includes('encendió')) estado_vehiculo = 'encendio'
+    if (txtLower.includes('chatarra'))                                     estado_vehiculo = 'chatarra'
+    else if (txtLower.includes('se desplaz') && txtLower.includes('encendi')) estado_vehiculo = 'encendio_rodante'
+    else if (txtLower.includes('se desplaz'))                              estado_vehiculo = 'rodante'
+    else if (txtLower.includes('encendi'))                                 estado_vehiculo = 'encendio'
 
-    return { patente, kilometraje: km, mandante, combustible, traccion, transmision, estado_vehiculo }
+    return { patente, kilometraje: km, mandante, combustible, traccion, transmision,
+             estado_vehiculo, fecha_remate_exacta, url_cav, url_inspeccion }
   } catch {
-    return { patente: null, kilometraje: null, mandante: null, combustible: null, traccion: null, transmision: null, estado_vehiculo: 'siniestrado' }
+    return fallback
   }
 }
 
@@ -158,11 +191,12 @@ async function fetchRemates(): Promise<{ id: string; fechaTxt: string; estado: '
   return resultados
 }
 
-async function fetchVehiculos(remateExternoId: string, remateUuid: string): Promise<VehiculoInput[]> {
+async function fetchVehiculos(remateExternoId: string, remateUuid: string): Promise<{ vehiculos: VehiculoInput[]; fechaExacta: string | null }> {
   const vehiculos: VehiculoInput[] = []
   const seenIds  = new Set<string>()
   let   pagina   = 1
   let   hayMas   = true
+  let   fechaExactaRemate: string | null = null
 
   while (hayMas) {
     const url  = `${BASE_URL}/Listado/Index/${remateExternoId}?NumPag=${pagina}`
@@ -194,7 +228,7 @@ async function fetchVehiculos(remateExternoId: string, remateUuid: string): Prom
     // Enriquecer con datos de la página de detalle (en batches de 5)
     for (let i = 0; i < vehiculosBasicos.length; i += 5) {
       const batch   = vehiculosBasicos.slice(i, i + 5)
-      const detalles = await Promise.all(batch.map(v => fetchDetalle(v.detalleUrl)))
+      const detalles = await Promise.all(batch.map(v => fetchDetalle(v.detalleUrl, v.lote_id)))
       batch.forEach((v, j) => {
         const d = detalles[j]
         // Excluir detalleUrl (campo interno, no existe en DB)
@@ -208,7 +242,13 @@ async function fetchVehiculos(remateExternoId: string, remateUuid: string): Prom
           traccion:        d.traccion,
           transmision:     d.transmision,
           estado_vehiculo: d.estado_vehiculo,
+          url_cav:         d.url_cav,
+          url_inspeccion:  d.url_inspeccion,
         } as VehiculoInput)
+        // Guardar fecha exacta para actualizar el remate
+        if (d.fecha_remate_exacta && !fechaExactaRemate) {
+          fechaExactaRemate = d.fecha_remate_exacta
+        }
       })
     }
 
@@ -221,7 +261,7 @@ async function fetchVehiculos(remateExternoId: string, remateUuid: string): Prom
 
     await sleep(800)
   }
-  return vehiculos
+  return { vehiculos, fechaExacta: fechaExactaRemate }
 }
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
@@ -258,8 +298,14 @@ export async function scrapeKarcal(empresaId: string): Promise<void> {
       continue
     }
 
-    const vehiculos = await fetchVehiculos(r.id, remateRow.id)
+    const { vehiculos, fechaExacta } = await fetchVehiculos(r.id, remateRow.id)
     console.log(`[Karcal] Remate ${r.id}: ${vehiculos.length} vehículos`)
+
+    // Actualizar fecha exacta del remate si la obtuvimos de la ficha
+    if (fechaExacta) {
+      await supabase.from('remates').update({ fecha_remate: fechaExacta }).eq('id', remateRow.id)
+      console.log(`[Karcal] Fecha remate actualizada: ${fechaExacta}`)
+    }
 
     if (vehiculos.length > 0) {
       const { error: vErr } = await supabase

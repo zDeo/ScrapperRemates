@@ -31,6 +31,8 @@ export interface VehiculoInput {
   combustible?: string | null
   traccion?: string | null
   transmision?: string | null
+  url_cav?: string | null
+  url_inspeccion?: string | null
 }
 
 export interface PrecioMercadoInput {
