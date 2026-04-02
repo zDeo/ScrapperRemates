@@ -26,8 +26,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: scrapers/package-lock.json
 
       - name: Instalar dependencias
         working-directory: scrapers
@@ -55,6 +53,7 @@ jobs:
           server_port: 465
           username: ${{ secrets.ALERT_EMAIL }}
           password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          from: ${{ secrets.ALERT_EMAIL }}
           subject: '⚠️ Scraper Remates falló'
           body: 'El workflow de scraping falló. Revisar GitHub Actions.'
           to: ${{ secrets.ALERT_EMAIL }}
