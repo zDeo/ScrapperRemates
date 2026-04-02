@@ -1,4 +1,4 @@
-import { Resend } from '@resend/node'
+import { Resend } from 'resend'
 import { supabase } from './supabase-client.js'
 
 const resend = new Resend(process.env.RESEND_API_KEY!)
