@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { supabase }        from '../supabase-client'
 import { useVehiculos }    from '../hooks/useVehiculos'
 import { FiltroBar }       from '../components/FiltroBar'
 import { VehiculoTable }   from '../components/VehiculoTable'
@@ -47,12 +46,6 @@ export function DashboardPage() {
                 📈 {totalConMargen} con margen &gt;20%
               </span>
             )}
-            <button
-              onClick={() => supabase.auth.signOut()}
-              className="text-sm text-gray-400 hover:text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
-            >
-              Salir
-            </button>
           </div>
         </div>
       </header>
