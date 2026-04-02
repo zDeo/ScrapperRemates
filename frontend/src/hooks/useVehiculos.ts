@@ -9,10 +9,14 @@ export function useVehiculos(filtros: Filtros) {
 
   useEffect(() => {
     setLoading(true)
+    const hoy = new Date().toISOString()
+
     let query = supabase
       .from('analisis_vehiculos')
       .select('*')
-      .order('fecha_remate', { ascending: false })
+      .eq('estado_remate', 'proximo')        // solo remates próximos
+      .gte('fecha_remate', hoy)             // fecha futura o de hoy
+      .order('fecha_remate', { ascending: true })
       .limit(300)
 
     if (filtros.empresa)       query = query.eq('empresa', filtros.empresa)
