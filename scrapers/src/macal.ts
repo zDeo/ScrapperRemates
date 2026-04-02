@@ -39,8 +39,8 @@ export async function scrapeMacal(empresaId: string): Promise<void> {
   })
 
   try {
-    await page.goto(BASE_URL, { waitUntil: 'networkidle', timeout: 40000 })
-    await page.waitForTimeout(4000)
+    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
+    await page.waitForTimeout(6000)
 
     // Intentar navegar a sección de remates dentro de la SPA
     const links = await page.$$eval('a, button, nav a', els =>
@@ -54,7 +54,7 @@ export async function scrapeMacal(empresaId: string): Promise<void> {
 
     for (const link of links.slice(0, 3)) {
       if (link.href && link.href !== BASE_URL) {
-        await page.goto(link.href, { waitUntil: 'networkidle', timeout: 30000 })
+        await page.goto(link.href, { waitUntil: 'domcontentloaded', timeout: 60000 })
         await page.waitForTimeout(3000)
         break
       }

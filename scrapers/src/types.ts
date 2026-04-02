@@ -25,6 +25,12 @@ export interface VehiculoInput {
   estado_vehiculo: string | null
   imagen_url: string | null
   url_detalle: string | null
+  patente?: string | null
+  kilometraje?: number | null
+  mandante?: string | null
+  combustible?: string | null
+  traccion?: string | null
+  transmision?: string | null
 }
 
 export interface PrecioMercadoInput {

@@ -28,9 +28,9 @@ export async function scrapeZarate(empresaId: string): Promise<void> {
   const page    = await browser.newPage()
 
   try {
-    // Intentar la página de próximos remates
-    await page.goto(`${BASE_URL}/proximos-remates/`, { waitUntil: 'networkidle', timeout: 30000 })
-    await page.waitForTimeout(3000)
+    // Página correcta de vehículos siniestrados
+    await page.goto(`${BASE_URL}/remates/vehiculos-siniestrados/`, { waitUntil: 'domcontentloaded', timeout: 40000 })
+    await page.waitForTimeout(4000)
 
     const datos = await page.evaluate((marcasRe: string) => {
       const re      = new RegExp(marcasRe, 'i')
@@ -87,7 +87,7 @@ export async function scrapeZarate(empresaId: string): Promise<void> {
     }, MARCAS_RE.source)
 
     if (datos.length === 0) {
-      console.log('[Zárate] No se encontraron vehículos')
+      console.log('[Zárate] No se encontraron vehículos (puede que el listado aún no esté publicado)')
       return
     }
 
