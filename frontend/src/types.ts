@@ -25,6 +25,12 @@ export interface VehiculoAnalisis {
   margen_estimado_clp: number | null
   margen_porcentaje: number | null
   precio_sugerido_compra: number | null
+  hist_exacto_precio: number | null
+  hist_exacto_cantidad: number | null
+  hist_rango_precio: number | null
+  hist_rango_cantidad: number | null
+  hist_ref_anio: number | null
+  hist_ref_precio: number | null
 }
 
 export interface Filtros {

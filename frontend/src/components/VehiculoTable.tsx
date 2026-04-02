@@ -20,7 +20,7 @@ const COND_COLORS: Record<string, string> = {
   siniestrado:      'bg-orange-50 text-orange-600',
 }
 
-const fmt = (n: number | null) =>
+const fmt = (n: number | null | undefined) =>
   n != null ? `$${n.toLocaleString('es-CL')}` : '—'
 
 const fmtFecha = (iso: string | null) => {
@@ -28,6 +28,31 @@ const fmtFecha = (iso: string | null) => {
   const d = new Date(iso)
   return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' })
     + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+}
+
+function HistoricoLabel({ v }: { v: VehiculoAnalisis }) {
+  if (v.hist_exacto_precio && v.hist_exacto_cantidad) {
+    return (
+      <span className="text-gray-400 text-xs">
+        Año {v.anio} · {v.hist_exacto_cantidad} remate{v.hist_exacto_cantidad !== 1 ? 's' : ''}
+      </span>
+    )
+  }
+  if (v.hist_rango_precio && v.hist_rango_cantidad) {
+    return (
+      <span className="text-gray-400 text-xs">
+        ±1 año · {v.hist_rango_cantidad} remate{v.hist_rango_cantidad !== 1 ? 's' : ''}
+      </span>
+    )
+  }
+  if (v.hist_ref_anio && v.hist_ref_precio) {
+    return (
+      <span className="text-amber-500 text-xs">
+        Ref. año {v.hist_ref_anio}
+      </span>
+    )
+  }
+  return <span className="text-gray-300 text-xs">Sin historial</span>
 }
 
 export function VehiculoTable({ vehiculos, loading }: Props) {
@@ -60,8 +85,9 @@ export function VehiculoTable({ vehiculos, loading }: Props) {
             <th className="px-4 py-3 text-left font-semibold">Año</th>
             <th className="px-4 py-3 text-left font-semibold">Condición</th>
             <th className="px-4 py-3 text-left font-semibold">Análisis de precio</th>
+            <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">Precio est. venta</th>
             <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">Fecha remate</th>
-            <th className="px-4 py-3 text-left font-semibold">Link</th>
+            <th className="px-4 py-3 text-left font-semibold">Links</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-50">
@@ -120,12 +146,17 @@ export function VehiculoTable({ vehiculos, loading }: Props) {
                     <span className="text-gray-400">Precio base</span>
                     <span className="font-medium text-gray-700">{fmt(v.precio_base)}</span>
                   </div>
-                  <div className="flex justify-between gap-4">
+                  <div className="flex justify-between gap-4 items-center">
                     <span className="text-gray-400">Prom. remates</span>
                     <span className={`font-medium ${v.precio_remate_promedio ? 'text-blue-600' : 'text-gray-300'}`}>
                       {fmt(v.precio_remate_promedio)}
                     </span>
                   </div>
+                  {v.precio_remate_promedio && (
+                    <div className="flex justify-between gap-4 items-center">
+                      <HistoricoLabel v={v} />
+                    </div>
+                  )}
                   {v.precio_remate_promedio && (
                     <div className="flex justify-between gap-4 pt-1 border-t border-gray-100">
                       <span className="text-gray-400 font-medium">✅ Comprar a</span>
@@ -135,12 +166,29 @@ export function VehiculoTable({ vehiculos, loading }: Props) {
                 </div>
               </td>
 
+              {/* Precio estimado de venta (mercado) */}
+              <td className="px-4 py-4 min-w-[140px]">
+                {v.precio_mercado ? (
+                  <div className="space-y-1 text-xs">
+                    <div className="font-bold text-purple-700 text-sm">{fmt(v.precio_mercado)}</div>
+                    <div className="text-gray-400">Chileautos ±1 año</div>
+                    {v.margen_porcentaje != null && (
+                      <div className={`font-semibold ${v.margen_porcentaje >= 40 ? 'text-green-600' : v.margen_porcentaje >= 20 ? 'text-yellow-600' : 'text-gray-400'}`}>
+                        {v.margen_porcentaje > 0 ? '+' : ''}{v.margen_porcentaje}% margen
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-gray-300 text-xs">Sin datos</span>
+                )}
+              </td>
+
               {/* Fecha remate */}
               <td className="px-4 py-4 text-xs text-gray-500 whitespace-nowrap">
                 {fmtFecha(v.fecha_remate)}
               </td>
 
-              {/* Link */}
+              {/* Links */}
               <td className="px-4 py-4">
                 <div className="flex flex-col gap-1">
                   {v.url_detalle && (
