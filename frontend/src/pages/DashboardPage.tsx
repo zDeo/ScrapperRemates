@@ -6,7 +6,8 @@ import type { Filtros }    from '../types'
 
 const FILTROS_INIT: Filtros = {
   empresa: '', marca: '', modelo: '',
-  anioMin: null, anioMax: null, soloConMargen: false,
+  anioMin: null, anioMax: null,
+  promedioMin: null, promedioMax: null,
 }
 
 export function DashboardPage() {

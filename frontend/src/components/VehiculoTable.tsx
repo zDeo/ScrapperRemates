@@ -1,6 +1,4 @@
 import type { VehiculoAnalisis } from '../types'
-import { AlertaBadge }   from './AlertaBadge'
-import { PrecioAnalisis } from './PrecioAnalisis'
 
 interface Props {
   vehiculos: VehiculoAnalisis[]
@@ -8,17 +6,35 @@ interface Props {
 }
 
 const EMPRESA_COLORS: Record<string, string> = {
-  Karcal: 'bg-blue-50 text-blue-700',
-  Reyco:  'bg-green-50 text-green-700',
-  Zárate: 'bg-orange-50 text-orange-700',
-  Macal:  'bg-purple-50 text-purple-700',
+  Karcal: 'bg-blue-50 text-blue-700 border border-blue-100',
+  Zárate: 'bg-orange-50 text-orange-700 border border-orange-100',
+  Reyco:  'bg-green-50 text-green-700 border border-green-100',
+  Macal:  'bg-purple-50 text-purple-700 border border-purple-100',
+}
+
+const COND_COLORS: Record<string, string> = {
+  chatarra:         'bg-red-50 text-red-600',
+  rodante:          'bg-green-50 text-green-600',
+  encendio:         'bg-yellow-50 text-yellow-700',
+  encendio_rodante: 'bg-emerald-50 text-emerald-700',
+  siniestrado:      'bg-orange-50 text-orange-600',
+}
+
+const fmt = (n: number | null) =>
+  n != null ? `$${n.toLocaleString('es-CL')}` : '—'
+
+const fmtFecha = (iso: string | null) => {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
 }
 
 export function VehiculoTable({ vehiculos, loading }: Props) {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-3">
-        <div className="animate-spin h-9 w-9 border-4 border-brand-500 rounded-full border-t-transparent" />
+        <div className="animate-spin h-9 w-9 border-4 border-blue-500 rounded-full border-t-transparent" />
         <span className="text-sm text-gray-400">Cargando vehículos...</span>
       </div>
     )
@@ -37,53 +53,117 @@ export function VehiculoTable({ vehiculos, loading }: Props) {
     <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
       <table className="w-full text-sm">
         <thead>
-          <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
-            {['Empresa','Vehículo','Año','Cond.','Análisis de precios','Margen','Fecha remate','Link'].map(h => (
-              <th key={h} className="px-4 py-3 text-left font-semibold whitespace-nowrap">{h}</th>
-            ))}
+          <tr className="bg-gray-50 border-b text-gray-500 text-xs uppercase tracking-wide">
+            <th className="px-4 py-3 text-left font-semibold">Empresa</th>
+            <th className="px-4 py-3 text-left font-semibold">Vehículo</th>
+            <th className="px-4 py-3 text-left font-semibold">Foto</th>
+            <th className="px-4 py-3 text-left font-semibold">Año</th>
+            <th className="px-4 py-3 text-left font-semibold">Condición</th>
+            <th className="px-4 py-3 text-left font-semibold">Análisis de precio</th>
+            <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">Fecha remate</th>
+            <th className="px-4 py-3 text-left font-semibold">Link</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-50">
           {vehiculos.map(v => (
-            <tr key={v.id} className="hover:bg-blue-50/30 transition-colors">
-              <td className="px-4 py-3">
+            <tr key={v.id} className="hover:bg-blue-50/20 transition-colors">
+
+              {/* Empresa */}
+              <td className="px-4 py-4">
                 <span className={`px-2 py-1 rounded-full text-xs font-semibold ${EMPRESA_COLORS[v.empresa] ?? 'bg-gray-100 text-gray-600'}`}>
                   {v.empresa}
                 </span>
               </td>
-              <td className="px-4 py-3">
-                <div className="font-semibold text-gray-800 leading-tight">{v.marca}</div>
-                <div className="text-gray-400 text-xs mt-0.5 leading-tight">{v.modelo}</div>
+
+              {/* Vehículo */}
+              <td className="px-4 py-4 min-w-[160px]">
+                <div className="font-bold text-gray-900 leading-tight">{v.marca}</div>
+                <div className="text-gray-500 text-xs mt-0.5">{v.modelo}</div>
+                {v.patente && (
+                  <div className="text-gray-400 text-xs mt-1 font-mono">{v.patente}</div>
+                )}
+                {v.kilometraje && (
+                  <div className="text-gray-400 text-xs">{v.kilometraje.toLocaleString('es-CL')} km</div>
+                )}
               </td>
-              <td className="px-4 py-3 text-gray-600 font-medium">{v.anio ?? '—'}</td>
-              <td className="px-4 py-3">
-                <span className="text-xs bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full">
+
+              {/* Foto */}
+              <td className="px-4 py-4">
+                {v.imagen_url ? (
+                  <img
+                    src={v.imagen_url}
+                    alt={`${v.marca} ${v.modelo}`}
+                    className="w-24 h-16 object-cover rounded-lg border border-gray-100"
+                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                  />
+                ) : (
+                  <div className="w-24 h-16 bg-gray-100 rounded-lg flex items-center justify-center text-2xl">🚗</div>
+                )}
+              </td>
+
+              {/* Año */}
+              <td className="px-4 py-4 text-gray-700 font-semibold">
+                {v.anio ?? '—'}
+              </td>
+
+              {/* Condición */}
+              <td className="px-4 py-4">
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${COND_COLORS[v.estado_vehiculo ?? ''] ?? 'bg-gray-50 text-gray-500'}`}>
                   {v.estado_vehiculo ?? '—'}
                 </span>
               </td>
-              <td className="px-4 py-3">
-                <PrecioAnalisis v={v} />
+
+              {/* Análisis de precio */}
+              <td className="px-4 py-4 min-w-[200px]">
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between gap-4">
+                    <span className="text-gray-400">Precio base</span>
+                    <span className="font-medium text-gray-700">{fmt(v.precio_base)}</span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-gray-400">Prom. remates</span>
+                    <span className={`font-medium ${v.precio_remate_promedio ? 'text-blue-600' : 'text-gray-300'}`}>
+                      {fmt(v.precio_remate_promedio)}
+                    </span>
+                  </div>
+                  {v.precio_remate_promedio && (
+                    <div className="flex justify-between gap-4 pt-1 border-t border-gray-100">
+                      <span className="text-gray-400 font-medium">✅ Comprar a</span>
+                      <span className="font-bold text-green-700">{fmt(v.precio_sugerido_compra)}</span>
+                    </div>
+                  )}
+                </div>
               </td>
-              <td className="px-4 py-3">
-                <AlertaBadge margen={v.margen_porcentaje} />
+
+              {/* Fecha remate */}
+              <td className="px-4 py-4 text-xs text-gray-500 whitespace-nowrap">
+                {fmtFecha(v.fecha_remate)}
               </td>
-              <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
-                {v.fecha_remate
-                  ? new Date(v.fecha_remate).toLocaleDateString('es-CL', { day:'2-digit', month:'2-digit', year:'numeric' })
-                  : '—'}
+
+              {/* Link */}
+              <td className="px-4 py-4">
+                <div className="flex flex-col gap-1">
+                  {v.url_detalle && (
+                    <a href={v.url_detalle} target="_blank" rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline text-xs font-medium">
+                      Ver ficha →
+                    </a>
+                  )}
+                  {v.url_cav && (
+                    <a href={v.url_cav} target="_blank" rel="noopener noreferrer"
+                      className="text-purple-600 hover:underline text-xs">
+                      📋 CAV
+                    </a>
+                  )}
+                  {v.url_inspeccion && (
+                    <a href={v.url_inspeccion} target="_blank" rel="noopener noreferrer"
+                      className="text-gray-500 hover:underline text-xs">
+                      🔍 Inspección
+                    </a>
+                  )}
+                </div>
               </td>
-              <td className="px-4 py-3">
-                {v.url_detalle ? (
-                  <a
-                    href={v.url_detalle}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-brand-600 hover:text-brand-800 hover:underline text-xs font-medium"
-                  >
-                    Ver →
-                  </a>
-                ) : '—'}
-              </td>
+
             </tr>
           ))}
         </tbody>

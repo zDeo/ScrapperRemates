@@ -1,16 +1,22 @@
 export interface VehiculoAnalisis {
   id: string
-  lote_id: string | null
   marca: string
   modelo: string
   anio: number | null
+  patente: string | null
+  kilometraje: number | null
+  mandante: string | null
+  combustible: string | null
+  traccion: string | null
+  transmision: string | null
   precio_base: number | null
   precio_final: number | null
   estado_vehiculo: string | null
   imagen_url: string | null
   url_detalle: string | null
+  url_cav: string | null
+  url_inspeccion: string | null
   vendido: boolean
-  created_at: string
   empresa: string
   fecha_remate: string | null
   estado_remate: string
@@ -27,5 +33,6 @@ export interface Filtros {
   modelo: string
   anioMin: number | null
   anioMax: number | null
-  soloConMargen: boolean
+  promedioMin: number | null
+  promedioMax: number | null
 }
