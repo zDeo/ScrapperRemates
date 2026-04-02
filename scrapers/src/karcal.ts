@@ -23,6 +23,7 @@ interface DetalleVehiculo {
   fecha_remate_exacta: string | null
   url_cav: string | null
   url_inspeccion: string | null
+  precio_final: number | null
 }
 
 /** Parsea todos los datos desde la página de detalle de Karcal */
@@ -30,7 +31,7 @@ async function fetchDetalle(detalleUrl: string, vehiculoId: string): Promise<Det
   const fallback: DetalleVehiculo = {
     patente: null, kilometraje: null, mandante: null, combustible: null,
     traccion: null, transmision: null, estado_vehiculo: 'siniestrado',
-    fecha_remate_exacta: null, url_cav: null, url_inspeccion: null,
+    fecha_remate_exacta: null, url_cav: null, url_inspeccion: null, precio_final: null,
   }
   try {
     const res  = await fetch(detalleUrl, { headers: HEADERS })
@@ -87,8 +88,12 @@ async function fetchDetalle(detalleUrl: string, vehiculoId: string): Promise<Det
     else if (txtLower.includes('se desplaz'))                              estado_vehiculo = 'rodante'
     else if (txtLower.includes('encendi'))                                 estado_vehiculo = 'encendio'
 
+    // Oferta ganadora (remates cerrados)
+    const ofertaM  = txt.match(/Oferta\s+ganadora\s*\$?([\d.,]+)/i)
+    const precio_final = ofertaM ? parseKarcalPrecio(ofertaM[1].replace(/\./g, '')) : null
+
     return { patente, kilometraje: km, mandante, combustible, traccion, transmision,
-             estado_vehiculo, fecha_remate_exacta, url_cav, url_inspeccion }
+             estado_vehiculo, fecha_remate_exacta, url_cav, url_inspeccion, precio_final }
   } catch {
     return fallback
   }
@@ -167,27 +172,47 @@ export function parseKarcalVehiculo(html: string, remateId: string): VehiculoInp
   }
 }
 
-async function fetchRemates(): Promise<{ id: string; fechaTxt: string; estado: 'proximo' | 'cerrado' }[]> {
+async function fetchRemates(maxPaginasInactivo = 2): Promise<{ id: string; fechaTxt: string; estado: 'proximo' | 'cerrado' }[]> {
   const resultados: { id: string; fechaTxt: string; estado: 'proximo' | 'cerrado' }[] = []
+  const vistosIds = new Set<string>()
 
-  for (const estado of ['Activo', 'Inactivo'] as const) {
-    const res  = await fetch(`${BASE_URL}/?EstadoRemate=${estado}`, { headers: HEADERS })
+  // Activos (solo primera página)
+  const resA  = await fetch(`${BASE_URL}/?EstadoRemate=Activo`, { headers: HEADERS })
+  const htmlA = await resA.text()
+  const $A    = cheerio.load(htmlA)
+  $A('a[href*="/Listado/Index/"]').each((_, el) => {
+    const href    = $A(el).attr('href') ?? ''
+    const idMatch = href.match(/\/Listado\/Index\/(\d+)/)
+    if (!idMatch || vistosIds.has(idMatch[1])) return
+    vistosIds.add(idMatch[1])
+    const contenedor = $A(el).closest('tr, li, div').text().trim()
+    const fechaMatch = contenedor.match(/\d{2}[\/\-]\d{2}[\/\-]\d{4}/)
+    resultados.push({ id: idMatch[1], fechaTxt: fechaMatch?.[0] ?? '', estado: 'proximo' })
+  })
+
+  // Inactivos con paginación controlada
+  for (let pag = 1; pag <= maxPaginasInactivo; pag++) {
+    const url  = `${BASE_URL}/?EstadoRemate=Inactivo&NumPag=${pag}`
+    const res  = await fetch(url, { headers: HEADERS })
     const html = await res.text()
     const $    = cheerio.load(html)
+    let   hayNuevos = false
 
     $('a[href*="/Listado/Index/"]').each((_, el) => {
       const href    = $(el).attr('href') ?? ''
       const idMatch = href.match(/\/Listado\/Index\/(\d+)/)
-      if (!idMatch) return
+      if (!idMatch || vistosIds.has(idMatch[1])) return
+      vistosIds.add(idMatch[1])
+      hayNuevos = true
       const contenedor = $(el).closest('tr, li, div').text().trim()
       const fechaMatch = contenedor.match(/\d{2}[\/\-]\d{2}[\/\-]\d{4}/)
-      resultados.push({
-        id:       idMatch[1],
-        fechaTxt: fechaMatch?.[0] ?? '',
-        estado:   estado === 'Activo' ? 'proximo' : 'cerrado',
-      })
+      resultados.push({ id: idMatch[1], fechaTxt: fechaMatch?.[0] ?? '', estado: 'cerrado' })
     })
+
+    if (!hayNuevos) break
+    await sleep(500)
   }
+
   return resultados
 }
 
@@ -244,6 +269,8 @@ async function fetchVehiculos(remateExternoId: string, remateUuid: string): Prom
           estado_vehiculo: d.estado_vehiculo,
           url_cav:         d.url_cav,
           url_inspeccion:  d.url_inspeccion,
+          precio_final:    d.precio_final,
+          vendido:         d.precio_final !== null,
         } as VehiculoInput)
         // Guardar fecha exacta para actualizar el remate
         if (d.fecha_remate_exacta && !fechaExactaRemate) {
@@ -272,9 +299,13 @@ function parseFechaChilena(texto: string): string | null {
   return `${m[3]}-${m[2]}-${m[1]}T00:00:00-04:00`
 }
 
-export async function scrapeKarcal(empresaId: string): Promise<void> {
-  console.log('[Karcal] Iniciando...')
-  const remates = await fetchRemates()
+export async function scrapeKarcalHistorico(empresaId: string, maxPaginas = 11): Promise<void> {
+  return scrapeKarcal(empresaId, maxPaginas)
+}
+
+export async function scrapeKarcal(empresaId: string, maxPaginasInactivo = 2): Promise<void> {
+  console.log(`[Karcal] Iniciando (max ${maxPaginasInactivo} páginas inactivo)...`)
+  const remates = await fetchRemates(maxPaginasInactivo)
   console.log(`[Karcal] ${remates.length} remates encontrados`)
 
   for (const r of remates) {

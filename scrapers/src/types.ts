@@ -33,6 +33,7 @@ export interface VehiculoInput {
   transmision?: string | null
   url_cav?: string | null
   url_inspeccion?: string | null
+  vendido?: boolean
 }
 
 export interface PrecioMercadoInput {

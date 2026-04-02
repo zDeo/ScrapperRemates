@@ -1,0 +1,38 @@
+name: Scraper Histórico Karcal
+
+on:
+  # Corre los domingos a las 3AM UTC (11PM Chile) para no interferir con el diario
+  schedule:
+    - cron: '0 3 * * 0'
+  # Permite ejecutar manualmente desde GitHub Actions
+  workflow_dispatch:
+
+jobs:
+  historico:
+    name: Cargar historial completo Karcal
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Instalar dependencias
+        working-directory: scrapers
+        run: npm ci
+
+      - name: Instalar Chromium para Playwright
+        working-directory: scrapers
+        run: npx playwright install chromium --with-deps
+
+      - name: Cargar historial completo
+        working-directory: scrapers
+        env:
+          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run scrape:historico
