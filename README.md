@@ -29,12 +29,15 @@ Ir a GitHub repo → Settings → Secrets → Actions:
 
 | Secret | Valor |
 |--------|-------|
-| `SUPABASE_URL` | `https://fifmbimepnqxwxswijba.supabase.co` |
-| `SUPABASE_SERVICE_ROLE_KEY` | Service Role Key (Supabase → Settings → API) |
-| `RESEND_API_KEY` | API Key de resend.com |
-| `RESEND_FROM_EMAIL` | `onboarding@resend.dev` (o tu dominio verificado) |
-| `ALERT_EMAIL` | `nbpfaster97@gmail.com` |
-
+| `SUPABASE_URL` | https://fifmbimepnqxwxswijba.supabase.co |
+| `SUPABASE_SERVICE_ROLE_KEY` | eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZpZm1iaW1lcG5xeHd4c3dpamJhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTA3NDI3MiwiZXhwIjoyMDkwNjUwMjcyfQ.2a-4r9pb-LzJEuBKWE81pbOxQL4Bb7U3nzBfNnNd8cw
+ |
+| `RESEND_API_KEY` | re_DxA4wX2c_NHLXS1rUrWYj8X4NKNvUF5wc
+ |
+| `RESEND_FROM_EMAIL` |onboarding@resend.dev
+ |
+| `ALERT_EMAIL` | nbpfaster97@gmail.com |
+  
 ### 5. Vercel
 - Conectar repo GitHub → Root Directory: `frontend`
 - Agregar env vars: `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`
