@@ -25,7 +25,7 @@ select
   r.estado          as estado_remate,
   r.url             as url_remate,
   e.nombre          as empresa,
-  e.url_base        as empresa_url,
+  e.url             as empresa_url,
 
   -- 1. Promedio año exacto (solo Karcal)
   (select round(avg(h.precio_final))::bigint
