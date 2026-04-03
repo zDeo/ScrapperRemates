@@ -108,11 +108,11 @@ function HistoricoInfo({ v }: { v: VehiculoAnalisis }) {
                   title="Ver ficha del remate anterior"
                   className="block text-xs font-mono leading-tight text-blue-600 hover:text-blue-800 hover:underline"
                 >
-                  ${Math.round(item.precio / 1000000)}M {item.modelo} →
+                  ${parseFloat((item.precio / 1000000).toFixed(1))}M {item.modelo} →
                 </a>
               ) : (
                 <div key={i} className="text-xs font-mono leading-tight text-gray-500">
-                  ${Math.round(item.precio / 1000000)}M {item.modelo}
+                  ${parseFloat((item.precio / 1000000).toFixed(1))}M {item.modelo}
                 </div>
               )
             ))}
