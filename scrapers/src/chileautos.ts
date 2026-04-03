@@ -2,10 +2,11 @@ import { chromium, Browser, Page } from 'playwright'
 import { PrecioMercadoInput } from './types.js'
 import { supabase } from './supabase-client.js'
 
-const BASE     = 'https://www.chileautos.cl'
-const DELAY_MS = 3_000
-const KM_RANGO = 50_000
+const BASE      = 'https://www.chileautos.cl'
+const DELAY_MS  = 2_500
+const KM_RANGO  = 50_000
 const ANIO_RANGO = 2
+const MAX_FICHAS = 10   // máximo de fichas individuales a visitar por vehículo
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
@@ -19,17 +20,9 @@ function mapTransmision(t: string | null | undefined): string | null {
   return null
 }
 
-// ─── Paso 1: Google → URL de Chileautos ───────────────────────────────────────
+// ─── Paso 1: Google → URL de listado Chileautos ───────────────────────────────
 
-/**
- * Busca en Google "[modelo] [marca] chileautos" y devuelve el primer link
- * de Chileautos /vehiculos/ que aparezca en los resultados.
- */
-async function buscarUrlViaGoogle(
-  browser: Browser,
-  marca: string,
-  modelo: string,
-): Promise<string | null> {
+async function buscarUrlViaGoogle(browser: Browser, marca: string, modelo: string): Promise<string | null> {
   const query = `${modelo} ${marca} chileautos`
   const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10&hl=es`
   console.log(`  [Google] "${query}"`)
@@ -40,26 +33,17 @@ async function buscarUrlViaGoogle(
     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20_000 })
     await sleep(2_000)
 
-    // Google envuelve URLs en href="/url?q=URL&..." o directamente
     const found = await page.evaluate(() => {
       for (const el of Array.from(document.querySelectorAll('a[href]'))) {
         const href = el.getAttribute('href') ?? ''
-
-        // Patrón 1: /url?q=https://www.chileautos.cl/vehiculos/...
         const m1 = href.match(/[?&]q=(https?:\/\/www\.chileautos\.cl\/vehiculos\/[^&]+)/)
         if (m1) return decodeURIComponent(m1[1])
-
-        // Patrón 2: link directo a chileautos
         if (href.startsWith('https://www.chileautos.cl/vehiculos/')) return href
       }
       return null
     })
 
-    if (found) {
-      console.log(`  [Google] → ${found}`)
-    } else {
-      console.log(`  [Google] → sin resultados de Chileautos`)
-    }
+    console.log(found ? `  [Google] → ${found}` : `  [Google] → sin resultados`)
     return found
   } catch (err) {
     console.error(`  [Google] Error: ${(err as Error).message}`)
@@ -69,114 +53,118 @@ async function buscarUrlViaGoogle(
   }
 }
 
-// ─── Paso 2: Navegar Chileautos y extraer precios ─────────────────────────────
+// ─── Paso 2: Desde el listado, extraer links de fichas individuales ────────────
 
-interface PrecioRango {
-  min:      number
-  max:      number
-  mediana:  number
-  cantidad: number
+async function extraerLinksPublicaciones(page: Page, listadoUrl: string): Promise<string[]> {
+  try {
+    await page.goto(listadoUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    // Esperar que carguen las tarjetas
+    await Promise.race([
+      page.waitForSelector('a[href*="/vehiculos/detalles/"]', { timeout: 8_000 }).catch(() => {}),
+      sleep(8_000),
+    ])
+
+    const links = await page.$$eval('a[href*="/vehiculos/detalles/"]', els =>
+      [...new Set(els.map(el => (el as HTMLAnchorElement).href))]
+    )
+    console.log(`  [Listado] ${links.length} publicaciones encontradas`)
+    return links.slice(0, MAX_FICHAS)
+  } catch (err) {
+    console.error(`  [Listado] Error: ${(err as Error).message}`)
+    return []
+  }
 }
 
-async function extraerPrecios(page: Page, url: string): Promise<PrecioRango | null> {
-  console.log(`  [Chileautos] GET ${url}`)
+// ─── Paso 3: Extraer precio desde una ficha individual ────────────────────────
+
+async function extraerPrecioFicha(page: Page, url: string): Promise<number | null> {
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-
     await Promise.race([
-      page.waitForSelector('[data-price], [class*="price"], [class*="Price"]', { timeout: 6_000 }).catch(() => {}),
+      page.waitForSelector('[data-default-price], [data-price]', { timeout: 6_000 }).catch(() => {}),
       sleep(6_000),
     ])
 
     const html = await page.content()
-    const nums: number[] = []
 
+    // Patrón 1: data-default-price="16700000" (número)
+    for (const m of html.matchAll(/data-default-price="(\d+)"/g)) {
+      const n = parseInt(m[1])
+      if (n >= 1_000_000 && n <= 500_000_000) return n
+    }
+
+    // Patrón 2: data-price="16700000"
     for (const m of html.matchAll(/data-price="(\d+)"/g)) {
       const n = parseInt(m[1])
-      if (n >= 1_000_000 && n <= 500_000_000) nums.push(n)
+      if (n >= 1_000_000 && n <= 500_000_000) return n
     }
 
-    if (nums.length === 0) {
-      for (const m of html.matchAll(/\$\s*([\d]{1,3}(?:[.,][\d]{3})+)/g)) {
-        const n = parseInt(m[1].replace(/[.,]/g, ''))
-        if (n >= 1_000_000 && n <= 500_000_000) nums.push(n)
-      }
+    // Patrón 3: value="$16.700.000" o value="16700000" en elemento de precio
+    for (const m of html.matchAll(/col[^"]*price[^>]+value="([^"]+)"/gi)) {
+      const raw = m[1].replace(/[$.\s]/g, '').replace(',', '')
+      const n = parseInt(raw)
+      if (n >= 1_000_000 && n <= 500_000_000) return n
     }
 
-    if (nums.length === 0) {
-      for (const m of html.matchAll(/"price"\s*:\s*(\d{7,9})/g)) {
-        const n = parseInt(m[1])
-        if (n >= 1_000_000 && n <= 500_000_000) nums.push(n)
-      }
+    // Patrón 4: "$16.700.000" o "$16,700,000" en texto
+    for (const m of html.matchAll(/\$\s*([\d]{1,3}(?:[.,][\d]{3})+)/g)) {
+      const n = parseInt(m[1].replace(/[.,]/g, ''))
+      if (n >= 1_000_000 && n <= 500_000_000) return n
     }
 
-    console.log(`  → ${nums.length} precios encontrados`)
-    if (nums.length === 0) return null
-
-    const unicos = [...new Set(nums)].sort((a, b) => a - b)
-    let filtrados = unicos
-    if (unicos.length >= 5) {
-      const media = unicos.reduce((s, n) => s + n, 0) / unicos.length
-      const std   = Math.sqrt(unicos.reduce((s, n) => s + (n - media) ** 2, 0) / unicos.length)
-      filtrados   = unicos.filter(n => Math.abs(n - media) <= 2 * std)
+    // Patrón 5: "price":16700000 en JSON embebido
+    for (const m of html.matchAll(/"price"\s*:\s*(\d{7,9})/g)) {
+      const n = parseInt(m[1])
+      if (n >= 1_000_000 && n <= 500_000_000) return n
     }
-    if (filtrados.length === 0) filtrados = unicos
 
-    return {
-      min:      filtrados[0],
-      max:      filtrados[filtrados.length - 1],
-      mediana:  filtrados[Math.floor(filtrados.length / 2)],
-      cantidad: filtrados.length,
-    }
-  } catch (err) {
-    console.error(`  [Chileautos] Error: ${(err as Error).message}`)
+    return null
+  } catch {
     return null
   }
 }
 
-/**
- * Dado un URL base de Chileautos (obtenido de Google), intenta añadir filtros
- * de año, km y transmisión para afinar los resultados.
- *
- * Chileautos acepta parámetros ?q=(...) en URLs de categoría.
- */
-function agregarFiltros(
-  baseUrl: string,
-  anio: number,
-  km: number | null,
-  transmision: string | null,
-): string {
-  // Limpiar params existentes
-  const url = baseUrl.split('?')[0].replace(/\/$/, '')
+// ─── Construir stats desde array de precios ───────────────────────────────────
 
-  const partes: string[] = [
-    `Ano.range(${anio - ANIO_RANGO}..${anio + ANIO_RANGO})`,
-  ]
-  const trans = mapTransmision(transmision)
-  if (trans)              partes.push(`Transmisión.${trans}`)
-  if (km != null && km > 0) partes.push(`Kilometraje.range(${Math.max(0, km - KM_RANGO)}..${km + KM_RANGO})`)
+interface PrecioRango { min: number; max: number; mediana: number; cantidad: number }
 
-  const q = `(And._.${partes.join('._.') }._.)`
-  return `${url}/?q=${encodeURIComponent(q)}&variant=merlin`
+function calcularRango(precios: number[]): PrecioRango | null {
+  if (precios.length === 0) return null
+  const sorted = [...precios].sort((a, b) => a - b)
+
+  // Eliminar outliers (2σ) si hay suficientes datos
+  let filtrados = sorted
+  if (sorted.length >= 5) {
+    const media = sorted.reduce((s, n) => s + n, 0) / sorted.length
+    const std   = Math.sqrt(sorted.reduce((s, n) => s + (n - media) ** 2, 0) / sorted.length)
+    filtrados   = sorted.filter(n => Math.abs(n - media) <= 2 * std)
+  }
+  if (filtrados.length === 0) filtrados = sorted
+
+  return {
+    min:      filtrados[0],
+    max:      filtrados[filtrados.length - 1],
+    mediana:  filtrados[Math.floor(filtrados.length / 2)],
+    cantidad: filtrados.length,
+  }
 }
 
-function agregarFiltroAnio(baseUrl: string, anio: number): string {
-  const url = baseUrl.split('?')[0].replace(/\/$/, '')
-  const q = `(And._.Ano.range(${anio - ANIO_RANGO}..${anio + ANIO_RANGO})._.)`
-  return `${url}/?q=${encodeURIComponent(q)}&variant=merlin`
-}
-
-// ─── Fallbacks clásicos (si Google no encuentra nada) ─────────────────────────
+// ─── Fallbacks de URL si Google no encuentra nada ────────────────────────────
 
 function slugify(s: string) { return s.toLowerCase().replace(/\s+/g, '-') }
 
 function buildUrlRuta(marca: string, modelo: string): string {
-  const base = modelo.split(' ')[0]
-  return `${BASE}/vehiculos/autos-veh%C3%ADculo/${slugify(marca)}/${slugify(base)}/`
+  return `${BASE}/vehiculos/autos-veh%C3%ADculo/${slugify(marca)}/${slugify(modelo.split(' ')[0])}/`
 }
 
 function buildUrlRutaMarca(marca: string): string {
   return `${BASE}/vehiculos/autos-veh%C3%ADculo/${slugify(marca)}/`
+}
+
+function agregarFiltroAnio(baseUrl: string, anio: number): string {
+  const url = baseUrl.split('?')[0].replace(/\/$/, '')
+  const q   = `(And._.Ano.range(${anio - ANIO_RANGO}..${anio + ANIO_RANGO})._.)`
+  return `${url}/?q=${encodeURIComponent(q)}&variant=merlin`
 }
 
 // ─── Función principal ────────────────────────────────────────────────────────
@@ -200,79 +188,86 @@ export async function scrapeChileautos(): Promise<void> {
   console.log(`[Chileautos] ${vehiculos.length} vehículos próximos a consultar`)
 
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
+  const page    = await browser.newPage()
+  await page.setExtraHTTPHeaders({ 'User-Agent': USER_AGENT, 'Accept-Language': 'es-CL,es;q=0.9' })
 
   try {
     for (const v of vehiculos as any[]) {
-      console.log(`\n[Chileautos] ${v.marca} ${v.modelo} ${v.anio} (${v.kilometraje ?? '?'} km, ${v.transmision ?? '-'})`)
+      console.log(`\n[Chileautos] ${v.marca} ${v.modelo} ${v.anio}`)
 
-      let precios: PrecioRango | null = null
-      const page = await browser.newPage()
-      await page.setExtraHTTPHeaders({ 'User-Agent': USER_AGENT, 'Accept-Language': 'es-CL,es;q=0.9' })
+      // ── 1. Google → URL de listado ─────────────────────────────────────────
+      let listadoUrl = await buscarUrlViaGoogle(browser, v.marca, v.modelo)
 
-      try {
-        // ── Paso 1: Google → URL base de Chileautos ──────────────────────────
-        const baseUrl = await buscarUrlViaGoogle(browser, v.marca, v.modelo)
-
-        if (baseUrl) {
-          await sleep(DELAY_MS)
-
-          // ── Paso 2a: URL + año + km + transmisión ─────────────────────────
-          if (v.anio) {
-            const urlFiltros = agregarFiltros(baseUrl, v.anio, v.kilometraje, v.transmision)
-            precios = await extraerPrecios(page, urlFiltros)
-            await sleep(DELAY_MS)
-          }
-
-          // ── Paso 2b: URL + solo año ───────────────────────────────────────
-          if (!precios && v.anio) {
-            const urlAnio = agregarFiltroAnio(baseUrl, v.anio)
-            precios = await extraerPrecios(page, urlAnio)
-            await sleep(DELAY_MS)
-          }
-
-          // ── Paso 2c: URL base sin filtros ─────────────────────────────────
-          if (!precios) {
-            precios = await extraerPrecios(page, baseUrl)
-            await sleep(DELAY_MS)
-          }
-        }
-
-        // ── Paso 3: Fallback ruta /marca/modelo/ ──────────────────────────────
-        if (!precios) {
-          const urlRuta = buildUrlRuta(v.marca, v.modelo)
-          console.log(`  [Fallback-ruta] ${urlRuta}`)
-          precios = await extraerPrecios(page, urlRuta)
-          await sleep(DELAY_MS)
-        }
-
-        // ── Paso 4: Fallback solo marca ───────────────────────────────────────
-        if (!precios) {
-          const urlMarca = buildUrlRutaMarca(v.marca)
-          console.log(`  [Fallback-marca] ${urlMarca}`)
-          precios = await extraerPrecios(page, urlMarca)
-          await sleep(DELAY_MS)
-        }
-
-      } finally {
-        await page.close()
+      // Si Google da una ficha individual, subir un nivel al listado
+      if (listadoUrl?.includes('/detalles/')) {
+        listadoUrl = listadoUrl.split('/detalles/')[0] + '/'
+        console.log(`  [URL] Subida a listado: ${listadoUrl}`)
       }
 
-      if (!precios) {
-        console.log(`  → Sin resultados en ningún intento`)
+      // Fallbacks si Google no encuentra nada
+      if (!listadoUrl) {
+        listadoUrl = buildUrlRuta(v.marca, v.modelo)
+        console.log(`  [Fallback] ${listadoUrl}`)
+      }
+
+      // Si hay año, agregar filtro de año al listado
+      const listadoUrlConAnio = v.anio ? agregarFiltroAnio(listadoUrl, v.anio) : listadoUrl
+
+      await sleep(DELAY_MS)
+
+      // ── 2. Ir al listado → extraer links de fichas ─────────────────────────
+      let fichaLinks = await extraerLinksPublicaciones(page, listadoUrlConAnio)
+
+      // Si no hay fichas con filtro año, probar sin filtro
+      if (fichaLinks.length === 0 && listadoUrlConAnio !== listadoUrl) {
+        console.log(`  [Listado] Sin resultados con año, probando sin filtro...`)
+        await sleep(DELAY_MS)
+        fichaLinks = await extraerLinksPublicaciones(page, listadoUrl)
+      }
+
+      // Último recurso: solo marca
+      if (fichaLinks.length === 0) {
+        const urlMarca = buildUrlRutaMarca(v.marca)
+        console.log(`  [Fallback marca] ${urlMarca}`)
+        await sleep(DELAY_MS)
+        fichaLinks = await extraerLinksPublicaciones(page, urlMarca)
+      }
+
+      if (fichaLinks.length === 0) {
+        console.log(`  → Sin publicaciones encontradas`)
         continue
       }
 
-      console.log(`  → $${precios.min.toLocaleString('es-CL')} — $${precios.max.toLocaleString('es-CL')} (${precios.cantidad} publ., mediana $${precios.mediana.toLocaleString('es-CL')})`)
+      // ── 3. Visitar cada ficha y extraer precio ─────────────────────────────
+      const precios: number[] = []
+      for (const fichaUrl of fichaLinks) {
+        await sleep(DELAY_MS)
+        const precio = await extraerPrecioFicha(page, fichaUrl)
+        if (precio) {
+          precios.push(precio)
+          console.log(`  ✓ ${fichaUrl.split('/').slice(-3, -1).join('/')} → $${precio.toLocaleString('es-CL')}`)
+        } else {
+          console.log(`  ✗ ${fichaUrl.split('/').slice(-3, -1).join('/')} → sin precio`)
+        }
+      }
+
+      const resultado = calcularRango(precios)
+      if (!resultado) {
+        console.log(`  → Sin precios extraídos`)
+        continue
+      }
+
+      console.log(`  → $${resultado.min.toLocaleString('es-CL')} – $${resultado.max.toLocaleString('es-CL')} (${resultado.cantidad} pub., mediana $${resultado.mediana.toLocaleString('es-CL')})`)
 
       const input: PrecioMercadoInput = {
         vehiculo_id:            v.id,
         marca:                  v.marca,
         modelo:                 v.modelo,
         anio:                   v.anio,
-        precio_mercado:         precios.mediana,
-        precio_min:             precios.min,
-        precio_max:             precios.max,
-        cantidad_publicaciones: precios.cantidad,
+        precio_mercado:         resultado.mediana,
+        precio_min:             resultado.min,
+        precio_max:             resultado.max,
+        cantidad_publicaciones: resultado.cantidad,
         fuente:                 'chileautos',
       }
 
@@ -282,6 +277,7 @@ export async function scrapeChileautos(): Promise<void> {
       if (uErr) console.error('  → Error upsert:', uErr.message)
     }
   } finally {
+    await page.close()
     await browser.close()
   }
 
