@@ -20,33 +20,55 @@ function mapTransmision(t: string | null | undefined): string | null {
   return null
 }
 
-// ─── Paso 1: Google → URL de listado Chileautos ───────────────────────────────
+// ─── Paso 1: Búsqueda web → URL de listado Chileautos ────────────────────────
 
-async function buscarUrlViaGoogle(browser: Browser, marca: string, modelo: string): Promise<string | null> {
+/**
+ * Extrae la primera URL de chileautos.cl/vehiculos/ (no detalle) desde un HTML.
+ * Funciona con Google, DuckDuckGo y cualquier página con links en texto.
+ */
+function extraerUrlChileautos(html: string): string | null {
+  // Patrón 1: URL completa en href o texto (Google redirect /url?q=... o link directo)
+  for (const m of html.matchAll(/(?:q=|href=["'])(https?:\/\/(?:www\.)?chileautos\.cl\/vehiculos\/[^"'&\s<>]+)/g)) {
+    const url = decodeURIComponent(m[1])
+    if (!url.includes('/detalles/')) return url.split('?')[0]
+  }
+  // Patrón 2: URL relativa
+  for (const m of html.matchAll(/href=["'](\/vehiculos\/autos-veh[^"'?]+)/g)) {
+    return `https://www.chileautos.cl${m[1]}`
+  }
+  return null
+}
+
+async function buscarUrlViaWeb(browser: Browser, marca: string, modelo: string): Promise<string | null> {
   const query = `${modelo} ${marca} chileautos`
-  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10&hl=es`
-  console.log(`  [Google] "${query}"`)
+
+  // Intentar DuckDuckGo primero (más amigable con bots)
+  const engines = [
+    `https://duckduckgo.com/?q=${encodeURIComponent(query)}&ia=web`,
+    `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10&hl=es`,
+  ]
 
   const page = await browser.newPage()
   try {
     await page.setExtraHTTPHeaders({ 'User-Agent': USER_AGENT, 'Accept-Language': 'es-CL,es;q=0.9' })
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20_000 })
-    await sleep(2_000)
 
-    const found = await page.evaluate(() => {
-      for (const el of Array.from(document.querySelectorAll('a[href]'))) {
-        const href = el.getAttribute('href') ?? ''
-        const m1 = href.match(/[?&]q=(https?:\/\/www\.chileautos\.cl\/vehiculos\/[^&]+)/)
-        if (m1) return decodeURIComponent(m1[1])
-        if (href.startsWith('https://www.chileautos.cl/vehiculos/')) return href
+    for (const searchUrl of engines) {
+      const motor = searchUrl.includes('duckduckgo') ? 'DDG' : 'Google'
+      console.log(`  [${motor}] "${query}"`)
+      try {
+        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20_000 })
+        await sleep(3_000)
+        const html  = await page.content()
+        const found = extraerUrlChileautos(html)
+        if (found) {
+          console.log(`  [${motor}] → ${found}`)
+          return found
+        }
+        console.log(`  [${motor}] → sin resultados, probando siguiente motor...`)
+      } catch (err) {
+        console.error(`  [${motor}] Error: ${(err as Error).message}`)
       }
-      return null
-    })
-
-    console.log(found ? `  [Google] → ${found}` : `  [Google] → sin resultados`)
-    return found
-  } catch (err) {
-    console.error(`  [Google] Error: ${(err as Error).message}`)
+    }
     return null
   } finally {
     await page.close()
@@ -58,17 +80,23 @@ async function buscarUrlViaGoogle(browser: Browser, marca: string, modelo: strin
 async function extraerLinksPublicaciones(page: Page, listadoUrl: string): Promise<string[]> {
   try {
     await page.goto(listadoUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-    // Esperar que carguen las tarjetas
-    await Promise.race([
-      page.waitForSelector('a[href*="/vehiculos/detalles/"]', { timeout: 8_000 }).catch(() => {}),
-      sleep(8_000),
-    ])
+    await sleep(8_000)  // Esperar carga JS completa
 
-    const links = await page.$$eval('a[href*="/vehiculos/detalles/"]', els =>
-      [...new Set(els.map(el => (el as HTMLAnchorElement).href))]
-    )
-    console.log(`  [Listado] ${links.length} publicaciones encontradas`)
-    return links.slice(0, MAX_FICHAS)
+    const html  = await page.content()
+    const links = new Set<string>()
+
+    // Regex sobre el HTML completo — más robusto que selectores CSS
+    // Patrón 1: URL completa en href o texto
+    for (const m of html.matchAll(/["'](https?:\/\/(?:www\.)?chileautos\.cl\/vehiculos\/detalles\/[^"'?#]+)/g)) {
+      links.add(m[1])
+    }
+    // Patrón 2: URL relativa
+    for (const m of html.matchAll(/["'](\/vehiculos\/detalles\/[^"'?#]+)/g)) {
+      links.add(`https://www.chileautos.cl${m[1]}`)
+    }
+
+    console.log(`  [Listado] ${links.size} publicaciones encontradas en: ${listadoUrl}`)
+    return [...links].slice(0, MAX_FICHAS)
   } catch (err) {
     console.error(`  [Listado] Error: ${(err as Error).message}`)
     return []
@@ -196,7 +224,7 @@ export async function scrapeChileautos(): Promise<void> {
       console.log(`\n[Chileautos] ${v.marca} ${v.modelo} ${v.anio}`)
 
       // ── 1. Google → URL de listado ─────────────────────────────────────────
-      let listadoUrl = await buscarUrlViaGoogle(browser, v.marca, v.modelo)
+      let listadoUrl = await buscarUrlViaWeb(browser, v.marca, v.modelo)
 
       // Si Google da una ficha individual, subir un nivel al listado
       if (listadoUrl?.includes('/detalles/')) {
