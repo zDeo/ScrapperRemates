@@ -396,6 +396,18 @@ export async function scrapeKarcal(empresaId: string, maxPaginasInactivo = 2, fe
       continue
     }
 
+    // Si el remate ya está cerrado y tiene vehículos en la DB, saltarlo
+    if (r.estado === 'cerrado') {
+      const { count } = await supabase
+        .from('vehiculos')
+        .select('id', { count: 'exact', head: true })
+        .eq('remate_id', remateRow.id)
+      if (count && count > 0) {
+        console.log(`[Karcal] Remate ${r.id}: ya procesado (${count} vehículos) → saltando`)
+        continue
+      }
+    }
+
     const { vehiculos, fechaExacta } = await fetchVehiculos(r.id, remateRow.id)
     console.log(`[Karcal] Remate ${r.id}: ${vehiculos.length} vehículos`)
 
