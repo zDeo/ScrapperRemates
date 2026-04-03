@@ -68,7 +68,7 @@ function HistoricoInfo({ v }: { v: VehiculoAnalisis }) {
         </div>
         {estimado && diff > 0 && (
           <div className="text-xs text-orange-500">
-            Est. año {anioVeh} (~7%/año · {diff} año{diff !== 1 ? 's' : ''}):
+            Est. año {anioVeh}:
             <span className="font-semibold ml-1">{fmt(estimado)}</span>
           </div>
         )}
