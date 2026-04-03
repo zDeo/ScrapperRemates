@@ -1,161 +1,145 @@
-import fetch from 'node-fetch'
-import * as cheerio from 'cheerio'
+import { chromium } from 'playwright'
 import { PrecioMercadoInput } from './types.js'
 import { supabase } from './supabase-client.js'
 
-const BASE = 'https://www.chileautos.cl'
-const KM_RANGO = 15_000   // ±15.000 km de tolerancia
-const DELAY_MS = 3_000
+const BASE    = 'https://www.chileautos.cl'
+const DELAY_MS = 4_000
+const KM_RANGO = 15_000
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
 
-/** Mapea transmisión de la BD al formato de Chileautos */
 function mapTransmision(t: string | null | undefined): string | null {
   if (!t) return null
   const lower = t.toLowerCase()
-  if (lower.includes('manual'))  return 'Manual'
-  if (lower.includes('auto'))    return 'Automático'
+  if (lower.includes('manual')) return 'Manual'
+  if (lower.includes('auto'))   return 'Automático'
   return null
 }
 
 /**
- * Construye la URL de búsqueda de Chileautos con filtros de
- * marca, modelo, año ±1, km ±15k y transmisión.
+ * Construye URL de Chileautos con filtros: año±1, km±15k, transmisión
+ * Ejemplo: https://www.chileautos.cl/vehiculos/?q=(And.(C.Marca.Toyota._.Modelo.Yaris.).Tipo.Usado._.Ano.range(2017..2019)._.Transmisión.Manual._.Kilometraje.range(91531..121531).)&variant=merlin
  */
 function buildUrl(
-  marca:      string,
-  modelo:     string,
-  anio:       number,
-  km:         number | null,
+  marca:       string,
+  modelo:      string,
+  anio:        number,
+  km:          number | null,
   transmision: string | null,
 ): string {
-  const anioMin = anio - 1
-  const anioMax = anio + 1
+  const marcaNorm  = marca.charAt(0).toUpperCase()  + marca.slice(1).toLowerCase()
+  const modeloBase = modelo.split(' ')[0]
+  const modeloNorm = modeloBase.charAt(0).toUpperCase() + modeloBase.slice(1).toLowerCase()
 
-  // Primer token del modelo (ej: "SAIL 4P" → "Sail")
-  const modeloNorm = modelo.split(' ')[0]
-    .charAt(0).toUpperCase() + modelo.split(' ')[0].slice(1).toLowerCase()
-  const marcaNorm  = marca.charAt(0).toUpperCase() + marca.slice(1).toLowerCase()
-
-  const parts: string[] = [
+  const filters: string[] = [
     `(C.Marca.${marcaNorm}._.Modelo.${modeloNorm}.)`,
     `Tipo.Usado`,
-    `Ano.range(${anioMin}..${anioMax}).`,
+    `Ano.range(${anio - 1}..${anio + 1})`,
   ]
 
   const trans = mapTransmision(transmision)
-  if (trans) parts.push(`Transmisión.${trans}.`)
+  if (trans) filters.push(`Transmisión.${trans}`)
 
   if (km != null && km > 0) {
     const kmMin = Math.max(0, km - KM_RANGO)
     const kmMax = km + KM_RANGO
-    parts.push(`Kilometraje.range(${kmMin}..${kmMax}).`)
+    filters.push(`Kilometraje.range(${kmMin}..${kmMax})`)
   }
 
-  const q = encodeURIComponent(`(And.${parts.join('_.')}.)`)
+  const q = encodeURIComponent(`(And.${filters.join('._.')}.`)
   return `${BASE}/vehiculos/?q=${q}&variant=merlin`
 }
 
 interface PrecioRango {
-  min:    number
-  max:    number
-  mediana: number
+  min:      number
+  max:      number
+  mediana:  number
   cantidad: number
 }
 
-/** Extrae todos los precios de una página de Chileautos usando fetch + cheerio */
 async function extraerPrecios(url: string): Promise<PrecioRango | null> {
+  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
+  const page    = await browser.newPage()
+
   try {
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36',
-        'Accept-Language': 'es-CL,es;q=0.9',
-      },
-      redirect: 'follow',
-    })
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    // Esperar a que carguen los listados
+    await page.waitForTimeout(3_000)
 
-    if (!res.ok) {
-      console.warn(`[Chileautos] HTTP ${res.status} para ${url}`)
-      return null
-    }
+    const nums: number[] = await page.evaluate(() => {
+      const found: number[] = []
 
-    const html = await res.text()
-    const $ = cheerio.load(html)
+      // Selectores en orden de especificidad
+      const SELECTORES = [
+        '[data-price]',
+        '[class*="price"]',
+        '[class*="Price"]',
+        '[class*="precio"]',
+        '.listing-item__price',
+      ]
 
-    const nums: number[] = []
-
-    // Chileautos renderiza precios en elementos con data-price o en texto "$X.XXX.XXX"
-    const SELECTORES = [
-      '[data-price]',
-      '[class*="price"]',
-      '[class*="Price"]',
-      '[class*="precio"]',
-      '.listing-item__price',
-      '.price',
-      'span[class*="price"]',
-    ]
-
-    for (const sel of SELECTORES) {
-      $(sel).each((_, el) => {
-        // data-price attr (numérico directo)
-        const attrVal = $(el).attr('data-price')
-        if (attrVal) {
-          const n = parseInt(attrVal.replace(/\D/g, ''))
-          if (n >= 1_000_000 && n <= 500_000_000) { nums.push(n); return }
-        }
-        // texto "$X.XXX.XXX"
-        const txt = $(el).text().trim()
-        const match = txt.match(/\$[\s]?([\d.,]+)/)
-        if (match) {
-          const n = parseInt(match[1].replace(/[.,]/g, ''))
-          if (n >= 1_000_000 && n <= 500_000_000) nums.push(n)
-        }
-      })
-      if (nums.length >= 3) break
-    }
-
-    // Fallback: buscar cualquier patrón de precio en el HTML completo
-    if (nums.length === 0) {
-      const matches = html.matchAll(/\$\s*([\d]{1,3}(?:[.,][\d]{3})+)/g)
-      for (const m of matches) {
-        const n = parseInt(m[1].replace(/[.,]/g, ''))
-        if (n >= 1_000_000 && n <= 500_000_000) nums.push(n)
+      for (const sel of SELECTORES) {
+        document.querySelectorAll(sel).forEach(el => {
+          // atributo data-price numérico
+          const attr = (el as HTMLElement).dataset?.price
+          if (attr) {
+            const n = parseInt(attr.replace(/\D/g, ''))
+            if (n >= 1_000_000 && n <= 500_000_000) { found.push(n); return }
+          }
+          // texto con patrón $X.XXX.XXX
+          const txt   = el.textContent?.trim() ?? ''
+          const match = txt.match(/\$([\d.,]+)/)
+          if (match) {
+            const n = parseInt(match[1].replace(/[.,]/g, ''))
+            if (n >= 1_000_000 && n <= 500_000_000) found.push(n)
+          }
+        })
+        if (found.length >= 3) break
       }
-    }
+
+      // Fallback: buscar en todo el texto visible
+      if (found.length === 0) {
+        const all = document.body.innerText
+        const matches = all.matchAll(/\$\s*([\d]{1,3}(?:[.,][\d]{3})+)/g)
+        for (const m of matches) {
+          const n = parseInt(m[1].replace(/[.,]/g, ''))
+          if (n >= 1_000_000 && n <= 500_000_000) found.push(n)
+        }
+      }
+
+      return found
+    })
 
     if (nums.length === 0) return null
 
-    // Deduplicar y ordenar
     const unicos = [...new Set(nums)].sort((a, b) => a - b)
 
-    // Eliminar outliers extremos (fuera de 2 desviaciones estándar) si hay suficientes datos
+    // Eliminar outliers (2σ) si hay suficientes datos
     let filtrados = unicos
     if (unicos.length >= 5) {
       const media = unicos.reduce((s, n) => s + n, 0) / unicos.length
       const std   = Math.sqrt(unicos.reduce((s, n) => s + Math.pow(n - media, 2), 0) / unicos.length)
       filtrados   = unicos.filter(n => Math.abs(n - media) <= 2 * std)
     }
-
     if (filtrados.length === 0) filtrados = unicos
-
-    const mediana = filtrados[Math.floor(filtrados.length / 2)]
 
     return {
       min:      filtrados[0],
       max:      filtrados[filtrados.length - 1],
-      mediana,
+      mediana:  filtrados[Math.floor(filtrados.length / 2)],
       cantidad: filtrados.length,
     }
   } catch (err) {
-    console.error('[Chileautos] Error fetch:', err)
+    console.error('[Chileautos] Error playwright:', (err as Error).message)
     return null
+  } finally {
+    await browser.close()
   }
 }
 
 export async function scrapeChileautos(): Promise<void> {
   console.log('[Chileautos] Iniciando scraping de precios de mercado...')
 
-  // Obtener vehículos próximos (estado proximo, fecha futura)
   const hoy = new Date().toISOString()
   const { data: vehiculos, error } = await supabase
     .from('vehiculos')
@@ -176,7 +160,7 @@ export async function scrapeChileautos(): Promise<void> {
 
   for (const v of vehiculos as any[]) {
     const url = buildUrl(v.marca, v.modelo, v.anio, v.kilometraje, v.transmision)
-    console.log(`[Chileautos] Buscando ${v.marca} ${v.modelo} ${v.anio} (${v.kilometraje ?? '?'} km, ${v.transmision ?? 'sin trans.'})`)
+    console.log(`[Chileautos] ${v.marca} ${v.modelo} ${v.anio} (${v.kilometraje ?? '?'} km, ${v.transmision ?? '-'})`)
     console.log(`  URL: ${url}`)
 
     const precios = await extraerPrecios(url)
