@@ -192,39 +192,39 @@ export async function scrapeChileautos(): Promise<void> {
   for (const v of vehiculos as any[]) {
     console.log(`[Chileautos] ${v.marca} ${v.modelo} ${v.anio} (${v.kilometraje ?? '?'} km, ${v.transmision ?? '-'})`)
 
-    // Intento 1: año±1 + km±15k + transmisión (más similar)
+    // Intento 1: ruta limpia + año±2 + km±50k + transmisión
     let url = buildUrl(v.marca, v.modelo, v.anio, v.kilometraje, v.transmision)
-    console.log(`  [1] año±1 + km + trans: ${url}`)
+    console.log(`  [1] año±2 + km + trans: ${url}`)
     let precios = await extraerPrecios(url)
 
-    // Intento 2: año±1 sin km ni transmisión
+    // Intento 2: ruta limpia + año±2 sin km/trans
     if (!precios) {
       url = buildUrlFallback(v.marca, v.modelo, v.anio)
-      console.log(`  [2] año±1 sin km/trans: ${url}`)
+      console.log(`  [2] año±2 sin km/trans: ${url}`)
       precios = await extraerPrecios(url)
       await sleep(DELAY_MS)
     }
 
-    // Intento 3: año±2
+    // Intento 3: ruta limpia + año±5
     if (!precios) {
       url = buildUrlFallbackAnioAmplio(v.marca, v.modelo, v.anio)
-      console.log(`  [3] año±2: ${url}`)
+      console.log(`  [3] año±5: ${url}`)
       precios = await extraerPrecios(url)
       await sleep(DELAY_MS)
     }
 
-    // Intento 4: solo marca+modelo (sin año)
-    if (!precios) {
-      url = buildUrlFallbackSinAnio(v.marca, v.modelo)
-      console.log(`  [4] sin año: ${url}`)
-      precios = await extraerPrecios(url)
-      await sleep(DELAY_MS)
-    }
-
-    // Intento 5: URL limpia por ruta /vehiculos/marca/modelo/
+    // Intento 4: ruta /vehiculos/marca/modelo/ (todos los años, sin filtros)
     if (!precios) {
       url = buildUrlRuta(v.marca, v.modelo)
-      console.log(`  [5] ruta limpia: ${url}`)
+      console.log(`  [4] ruta /vehiculos/marca/modelo/: ${url}`)
+      precios = await extraerPrecios(url)
+      await sleep(DELAY_MS)
+    }
+
+    // Intento 5: query sin año
+    if (!precios) {
+      url = buildUrlFallbackSinAnio(v.marca, v.modelo)
+      console.log(`  [5] query sin año: ${url}`)
       precios = await extraerPrecios(url)
       await sleep(DELAY_MS)
     }
