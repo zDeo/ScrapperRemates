@@ -44,5 +44,6 @@ export interface PrecioMercadoInput {
   precio_mercado: number
   precio_min: number
   precio_max: number
+  cantidad_publicaciones: number
   fuente: string
 }

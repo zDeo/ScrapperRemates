@@ -24,6 +24,7 @@ export interface VehiculoAnalisis {
   precio_mercado: number | null
   precio_mercado_min: number | null
   precio_mercado_max: number | null
+  precio_mercado_cantidad: number | null
   margen_estimado_clp: number | null
   margen_porcentaje: number | null
   precio_sugerido_compra: number | null

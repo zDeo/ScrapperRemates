@@ -4,7 +4,8 @@ import { supabase } from './supabase-client.js'
 
 const BASE    = 'https://www.chileautos.cl'
 const DELAY_MS = 4_000
-const KM_RANGO = 15_000
+const KM_RANGO = 50_000
+const ANIO_RANGO = 2
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
 
@@ -30,7 +31,7 @@ function buildUrl(
   const filters: string[] = [
     `(C.Marca.${marcaNorm}._.Modelo.${modeloNorm}.)`,
     `Tipo.Usado`,
-    `Ano.range(${anio - 1}..${anio + 1})`,
+    `Ano.range(${anio - ANIO_RANGO}..${anio + ANIO_RANGO})`,
   ]
 
   const trans = mapTransmision(transmision)
@@ -46,35 +47,30 @@ function buildUrl(
   return `${BASE}/vehiculos/?q=${q}&variant=merlin`
 }
 
-/** Fallback: solo marca+modelo+año±1, sin filtros de km ni transmisión */
+/** Fallback 1: año±2 sin km ni transmisión */
 function buildUrlFallback(marca: string, modelo: string, anio: number): string {
-  const marcaNorm  = marca.charAt(0).toUpperCase()  + marca.slice(1).toLowerCase()
+  const marcaNorm  = marca.charAt(0).toUpperCase() + marca.slice(1).toLowerCase()
   const modeloBase = modelo.split(' ')[0]
   const modeloNorm = modeloBase.charAt(0).toUpperCase() + modeloBase.slice(1).toLowerCase()
-
-  const filters = [
-    `(C.Marca.${marcaNorm}._.Modelo.${modeloNorm}.)`,
-    `Tipo.Usado`,
-    `Ano.range(${anio - 1}..${anio + 1})`,
-  ]
-
-  const q = encodeURIComponent(`(And.${filters.join('._.')}.`)
+  const q = encodeURIComponent(`(And.(C.Marca.${marcaNorm}._.Modelo.${modeloNorm}.).Tipo.Usado._.Ano.range(${anio - ANIO_RANGO}..${anio + ANIO_RANGO}).`)
   return `${BASE}/vehiculos/?q=${q}&variant=merlin`
-
 }
 
-/** Fallback 2: solo marca+modelo, sin año ni otros filtros */
-function buildUrlFallbackSinAnio(marca: string, modelo: string): string {
-  const marcaNorm  = marca.charAt(0).toUpperCase()  + marca.slice(1).toLowerCase()
+/** Fallback 2: año±5 sin otros filtros */
+function buildUrlFallbackAnioAmplio(marca: string, modelo: string, anio: number): string {
+  const marcaNorm  = marca.charAt(0).toUpperCase() + marca.slice(1).toLowerCase()
   const modeloBase = modelo.split(' ')[0]
   const modeloNorm = modeloBase.charAt(0).toUpperCase() + modeloBase.slice(1).toLowerCase()
+  const q = encodeURIComponent(`(And.(C.Marca.${marcaNorm}._.Modelo.${modeloNorm}.).Tipo.Usado._.Ano.range(${anio - 5}..${anio + 5}).`)
+  return `${BASE}/vehiculos/?q=${q}&variant=merlin`
+}
 
-  const filters = [
-    `(C.Marca.${marcaNorm}._.Modelo.${modeloNorm}.)`,
-    `Tipo.Usado`,
-  ]
-
-  const q = encodeURIComponent(`(And.${filters.join('._.')}.`)
+/** Fallback 3: solo marca+modelo sin año */
+function buildUrlFallbackSinAnio(marca: string, modelo: string): string {
+  const marcaNorm  = marca.charAt(0).toUpperCase() + marca.slice(1).toLowerCase()
+  const modeloBase = modelo.split(' ')[0]
+  const modeloNorm = modeloBase.charAt(0).toUpperCase() + modeloBase.slice(1).toLowerCase()
+  const q = encodeURIComponent(`(And.(C.Marca.${marcaNorm}._.Modelo.${modeloNorm}.).Tipo.Usado.`)
   return `${BASE}/vehiculos/?q=${q}&variant=merlin`
 }
 
@@ -189,25 +185,31 @@ export async function scrapeChileautos(): Promise<void> {
   for (const v of vehiculos as any[]) {
     console.log(`[Chileautos] ${v.marca} ${v.modelo} ${v.anio} (${v.kilometraje ?? '?'} km, ${v.transmision ?? '-'})`)
 
-    // Intento 1: filtros completos (año±1 + km±15k + transmisión)
+    // Intento 1: año±1 + km±15k + transmisión (más similar)
     let url = buildUrl(v.marca, v.modelo, v.anio, v.kilometraje, v.transmision)
-    console.log(`  URL 1: ${url}`)
+    console.log(`  [1] año±1 + km + trans: ${url}`)
     let precios = await extraerPrecios(url)
 
-    // Intento 2: solo año±1 (sin km ni transmisión)
+    // Intento 2: año±1 sin km ni transmisión
     if (!precios) {
-      console.log(`  → Sin resultados, intentando sin km/transmisión...`)
       url = buildUrlFallback(v.marca, v.modelo, v.anio)
-      console.log(`  URL 2: ${url}`)
+      console.log(`  [2] año±1 sin km/trans: ${url}`)
       precios = await extraerPrecios(url)
       await sleep(DELAY_MS)
     }
 
-    // Intento 3: solo marca+modelo sin año
+    // Intento 3: año±2
     if (!precios) {
-      console.log(`  → Sin resultados, intentando sin año...`)
+      url = buildUrlFallbackAnioAmplio(v.marca, v.modelo, v.anio)
+      console.log(`  [3] año±2: ${url}`)
+      precios = await extraerPrecios(url)
+      await sleep(DELAY_MS)
+    }
+
+    // Intento 4: solo marca+modelo (sin año)
+    if (!precios) {
       url = buildUrlFallbackSinAnio(v.marca, v.modelo)
-      console.log(`  URL 3: ${url}`)
+      console.log(`  [4] sin año: ${url}`)
       precios = await extraerPrecios(url)
       await sleep(DELAY_MS)
     }
@@ -221,14 +223,15 @@ export async function scrapeChileautos(): Promise<void> {
     console.log(`  → $${precios.min.toLocaleString('es-CL')} — $${precios.max.toLocaleString('es-CL')} (${precios.cantidad} publ., mediana $${precios.mediana.toLocaleString('es-CL')})`)
 
     const input: PrecioMercadoInput = {
-      vehiculo_id:    v.id,
-      marca:          v.marca,
-      modelo:         v.modelo,
-      anio:           v.anio,
-      precio_mercado: precios.mediana,
-      precio_min:     precios.min,
-      precio_max:     precios.max,
-      fuente:         'chileautos',
+      vehiculo_id:            v.id,
+      marca:                  v.marca,
+      modelo:                 v.modelo,
+      anio:                   v.anio,
+      precio_mercado:         precios.mediana,
+      precio_min:             precios.min,
+      precio_max:             precios.max,
+      cantidad_publicaciones: precios.cantidad,
+      fuente:                 'chileautos',
     }
 
     const { error: uErr } = await supabase

@@ -194,23 +194,11 @@ export function VehiculoTable({ vehiculos, loading }: Props) {
               <td className="px-4 py-4 min-w-[170px]">
                 {v.precio_mercado_min && v.precio_mercado_max ? (
                   <div className="space-y-1 text-xs">
-                    <div className="font-bold text-purple-700 text-sm">
-                      {fmt(v.precio_mercado_min)}
+                    <div className="font-bold text-purple-700 text-sm">{fmt(v.precio_mercado_min)}</div>
+                    <div className="text-purple-500 text-xs">— {fmt(v.precio_mercado_max)}</div>
+                    <div className="text-gray-400">
+                      Chileautos · {v.precio_mercado_cantidad ?? '?'} publicaciones
                     </div>
-                    <div className="text-purple-400 text-xs">
-                      — {fmt(v.precio_mercado_max)}
-                    </div>
-                    <div className="text-gray-400">Chileautos · año ±1 · km ±15k</div>
-                    {v.margen_porcentaje != null && (
-                      <div className={`font-semibold ${v.margen_porcentaje >= 40 ? 'text-green-600' : v.margen_porcentaje >= 20 ? 'text-yellow-600' : 'text-gray-400'}`}>
-                        {v.margen_porcentaje > 0 ? '+' : ''}{v.margen_porcentaje}% margen
-                      </div>
-                    )}
-                  </div>
-                ) : v.precio_mercado ? (
-                  <div className="space-y-1 text-xs">
-                    <div className="font-bold text-purple-700 text-sm">{fmt(v.precio_mercado)}</div>
-                    <div className="text-gray-400">Chileautos · año ±1</div>
                     {v.margen_porcentaje != null && (
                       <div className={`font-semibold ${v.margen_porcentaje >= 40 ? 'text-green-600' : v.margen_porcentaje >= 20 ? 'text-yellow-600' : 'text-gray-400'}`}>
                         {v.margen_porcentaje > 0 ? '+' : ''}{v.margen_porcentaje}% margen
