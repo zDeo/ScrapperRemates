@@ -1,6 +1,9 @@
 -- Migración 005: precios_mercado por vehículo con min/max
 -- Permite búsquedas filtradas por km y transmisión específicas del vehículo
 
+-- 0. Eliminar vista antigua para poder recrearla con nuevas columnas
+drop view if exists analisis_vehiculos;
+
 -- 1. Agregar columnas precio_min y precio_max
 alter table precios_mercado
   add column if not exists precio_min bigint,
