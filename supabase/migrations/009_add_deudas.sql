@@ -55,7 +55,7 @@ select
   -- 4. Modelos similares: misma marca + primer token del modelo (MACAN ≈ MACAN GTS ≈ MACAN S)
   hist_similar.precio    as hist_similar_precio,
   hist_similar.cantidad  as hist_similar_cantidad,
-  hs_resumen.resumen     as hist_similar_resumen,
+  hs_resumen.items       as hist_similar_resumen,
 
   -- Precio consolidado: exacto → rango → ref → similar
   coalesce(
@@ -172,17 +172,31 @@ left join lateral (
     and eh.nombre = 'Karcal'
 ) hist_similar on true
 
--- Lateral: resumen por variante de modelo (ej: "15M MACAN S, 17M MACAN GTS, 12M MACAN")
+-- Lateral: items por variante con URL de la ficha más reciente
 left join lateral (
-  select string_agg(
-    round(avg_precio::numeric / 1000000, 0)::int::text || 'M ' || modelo,
-    ', '
+  select json_agg(
+    json_build_object(
+      'modelo',  modelo,
+      'precio',  avg_precio,
+      'url',     url_reciente
+    )
     order by avg_precio desc
-  ) as resumen
+  ) as items
   from (
     select
       h.modelo,
-      round(avg(h.precio_final))::bigint as avg_precio
+      round(avg(h.precio_final))::bigint as avg_precio,
+      (
+        select h2.url_detalle
+        from vehiculos h2
+        join remates rh2 on rh2.id = h2.remate_id
+        join empresas_remate eh2 on eh2.id = rh2.empresa_id
+        where h2.marca = v.marca and h2.modelo = h.modelo
+          and h2.vendido = true and h2.precio_final is not null
+          and eh2.nombre = 'Karcal'
+        order by rh2.fecha_remate desc
+        limit 1
+      ) as url_reciente
     from vehiculos h
     join remates rh on rh.id = h.remate_id
     join empresas_remate eh on eh.id = rh.empresa_id

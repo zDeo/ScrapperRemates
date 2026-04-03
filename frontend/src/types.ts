@@ -39,7 +39,7 @@ export interface VehiculoAnalisis {
   hist_ref_traccion: string | null
   hist_similar_precio: number | null
   hist_similar_cantidad: number | null
-  hist_similar_resumen: string | null
+  hist_similar_resumen: Array<{ modelo: string; precio: number; url: string | null }> | null
   deuda_total: number | null
   deuda_detalle: string | null
   imagenes: string[] | null
