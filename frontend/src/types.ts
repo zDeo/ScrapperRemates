@@ -37,6 +37,12 @@ export interface VehiculoAnalisis {
   hist_ref_transmision: string | null
   hist_ref_combustible: string | null
   hist_ref_traccion: string | null
+  hist_similar_precio: number | null
+  hist_similar_cantidad: number | null
+  hist_similar_resumen: string | null
+  deuda_total: number | null
+  deuda_detalle: string | null
+  imagenes: string[] | null
 }
 
 export interface Filtros {

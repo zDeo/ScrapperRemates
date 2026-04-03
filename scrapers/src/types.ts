@@ -34,6 +34,9 @@ export interface VehiculoInput {
   url_cav?: string | null
   url_inspeccion?: string | null
   vendido?: boolean
+  deuda_total?: number | null
+  deuda_detalle?: string | null
+  imagenes?: string[] | null
 }
 
 export interface PrecioMercadoInput {

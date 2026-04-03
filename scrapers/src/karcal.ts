@@ -24,6 +24,9 @@ interface DetalleVehiculo {
   url_cav: string | null
   url_inspeccion: string | null
   precio_final: number | null
+  deuda_total: number | null
+  deuda_detalle: string | null
+  imagenes: string[]
 }
 
 /** Parsea todos los datos desde la página de detalle de Karcal */
@@ -32,6 +35,7 @@ async function fetchDetalle(detalleUrl: string, vehiculoId: string): Promise<Det
     patente: null, kilometraje: null, mandante: null, combustible: null,
     traccion: null, transmision: null, estado_vehiculo: 'siniestrado',
     fecha_remate_exacta: null, url_cav: null, url_inspeccion: null, precio_final: null,
+    deuda_total: null, deuda_detalle: null, imagenes: [],
   }
   try {
     const res  = await fetch(detalleUrl, { headers: HEADERS })
@@ -92,8 +96,36 @@ async function fetchDetalle(detalleUrl: string, vehiculoId: string): Promise<Det
     const ofertaM  = txt.match(/Oferta\s+ganadora\s*\$?([\d.,]+)/i)
     const precio_final = ofertaM ? parseKarcalPrecio(ofertaM[1].replace(/\./g, '')) : null
 
+    // Deudas / multas pendientes
+    const deudaItems: { label: string; monto: number }[] = []
+    // Buscar patrones: "TAG $1.234.567", "Prenda $1.234.567", "Multa $1.234.567"
+    const deudaRe = /(TAG|Prenda|Multa|Anotación|Anotacion|Deuda\s+\w+)\s*[:\-]?\s*\$([\d.,]+)/gi
+    let dm: RegExpExecArray | null
+    while ((dm = deudaRe.exec(txt)) !== null) {
+      const monto = parseKarcalPrecio(dm[2].replace(/\./g, ''))
+      if (monto && monto > 0) deudaItems.push({ label: dm[1].trim(), monto })
+    }
+    const deuda_total   = deudaItems.length > 0 ? deudaItems.reduce((s, d) => s + d.monto, 0) : null
+    const deuda_detalle = deudaItems.length > 0
+      ? deudaItems.map(d => `${d.label} $${d.monto.toLocaleString('es-CL')}`).join(' · ')
+      : null
+
+    // Imágenes adicionales del detalle
+    const imagenes: string[] = []
+    $('img').each((_, el) => {
+      const src = $(el).attr('src') ?? ''
+      if (!src) return
+      // Excluir logos, iconos, botones (src muy cortos o con palabras clave)
+      if (/logo|icon|btn|banner|arrow|sprite|gif$/i.test(src)) return
+      // Solo imágenes con extensiones de foto o rutas de galería
+      if (!/\.(jpg|jpeg|png|webp)/i.test(src) && !/foto|foto|galeria|image|photo/i.test(src)) return
+      const fullSrc = src.startsWith('http') ? src : `${BASE_URL}${src.startsWith('/') ? src : '/' + src}`
+      if (!imagenes.includes(fullSrc)) imagenes.push(fullSrc)
+    })
+
     return { patente, kilometraje: km, mandante, combustible, traccion, transmision,
-             estado_vehiculo, fecha_remate_exacta, url_cav, url_inspeccion, precio_final }
+             estado_vehiculo, fecha_remate_exacta, url_cav, url_inspeccion, precio_final,
+             deuda_total, deuda_detalle, imagenes }
   } catch {
     return fallback
   }
@@ -271,6 +303,9 @@ async function fetchVehiculos(remateExternoId: string, remateUuid: string): Prom
           url_inspeccion:  d.url_inspeccion,
           precio_final:    d.precio_final,
           vendido:         d.precio_final !== null,
+          deuda_total:     d.deuda_total,
+          deuda_detalle:   d.deuda_detalle,
+          imagenes:        d.imagenes.length > 0 ? d.imagenes : null,
         } as VehiculoInput)
         // Guardar fecha exacta para actualizar el remate
         if (d.fecha_remate_exacta && !fechaExactaRemate) {
