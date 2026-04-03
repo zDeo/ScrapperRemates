@@ -342,12 +342,9 @@ async function fetchVehiculos(remateExternoId: string, remateUuid: string): Prom
       })
     }
 
-    // Paginación
-    const paginaTexto = $('[class*="pagination"], .pagination').text()
-    const totalMatch  = paginaTexto.match(/de\s+(\d+)/i)
-    const total       = totalMatch ? parseInt(totalMatch[1]) : 1
-    hayMas = pagina < total
+    // Continuar a la siguiente página (se para arriba cuando fichaMap.size === 0)
     pagina++
+    console.log(`[Karcal] Remate ${remateExternoId} pág ${pagina - 1}: ${fichaMap.size} fichas nuevas`)
 
     await sleep(800)
   }
