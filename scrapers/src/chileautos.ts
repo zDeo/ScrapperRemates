@@ -90,54 +90,48 @@ async function extraerPrecios(url: string): Promise<PrecioRango | null> {
   const page    = await browser.newPage()
 
   try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-    // Esperar a que carguen los listados
-    await page.waitForTimeout(3_000)
-
-    const nums: number[] = await page.evaluate(() => {
-      const found: number[] = []
-
-      // Selectores en orden de especificidad
-      const SELECTORES = [
-        '[data-price]',
-        '[class*="price"]',
-        '[class*="Price"]',
-        '[class*="precio"]',
-        '.listing-item__price',
-      ]
-
-      for (const sel of SELECTORES) {
-        document.querySelectorAll(sel).forEach(el => {
-          // atributo data-price numérico
-          const attr = (el as HTMLElement).dataset?.price
-          if (attr) {
-            const n = parseInt(attr.replace(/\D/g, ''))
-            if (n >= 1_000_000 && n <= 500_000_000) { found.push(n); return }
-          }
-          // texto con patrón $X.XXX.XXX
-          const txt   = el.textContent?.trim() ?? ''
-          const match = txt.match(/\$([\d.,]+)/)
-          if (match) {
-            const n = parseInt(match[1].replace(/[.,]/g, ''))
-            if (n >= 1_000_000 && n <= 500_000_000) found.push(n)
-          }
-        })
-        if (found.length >= 3) break
-      }
-
-      // Fallback: buscar en todo el texto visible
-      if (found.length === 0) {
-        const all = document.body.innerText
-        const matches = all.matchAll(/\$\s*([\d]{1,3}(?:[.,][\d]{3})+)/g)
-        for (const m of matches) {
-          const n = parseInt(m[1].replace(/[.,]/g, ''))
-          if (n >= 1_000_000 && n <= 500_000_000) found.push(n)
-        }
-      }
-
-      return found
+    await page.setExtraHTTPHeaders({
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36',
+      'Accept-Language': 'es-CL,es;q=0.9',
     })
 
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+
+    // Esperar a que aparezca algún precio o que pasen 6 segundos
+    await Promise.race([
+      page.waitForSelector('[data-price], [class*="price"], [class*="Price"]', { timeout: 6_000 }).catch(() => {}),
+      sleep(6_000),
+    ])
+
+    // Volcar todo el HTML para analizar
+    const html = await page.content()
+
+    // Extraer precios directamente del HTML con regex
+    const nums: number[] = []
+
+    // Patrón 1: data-price="1234567"
+    for (const m of html.matchAll(/data-price="(\d+)"/g)) {
+      const n = parseInt(m[1])
+      if (n >= 1_000_000 && n <= 500_000_000) nums.push(n)
+    }
+
+    // Patrón 2: "$X.XXX.XXX" o "$X,XXX,XXX" en el texto
+    if (nums.length === 0) {
+      for (const m of html.matchAll(/\$\s*([\d]{1,3}(?:[.,][\d]{3})+)/g)) {
+        const n = parseInt(m[1].replace(/[.,]/g, ''))
+        if (n >= 1_000_000 && n <= 500_000_000) nums.push(n)
+      }
+    }
+
+    // Patrón 3: números grandes en JSON embebido (ej: "price":5990000)
+    if (nums.length === 0) {
+      for (const m of html.matchAll(/"price"\s*:\s*(\d{7,9})/g)) {
+        const n = parseInt(m[1])
+        if (n >= 1_000_000 && n <= 500_000_000) nums.push(n)
+      }
+    }
+
+    console.log(`    → ${nums.length} precios encontrados en HTML`)
     if (nums.length === 0) return null
 
     const unicos = [...new Set(nums)].sort((a, b) => a - b)
