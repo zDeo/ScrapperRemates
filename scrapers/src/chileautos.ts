@@ -55,27 +55,20 @@ function buildUrlFallbackAnioAmplio(marca: string, modelo: string, anio: number)
   return `${BASE}/vehiculos/?q=${encodeURIComponent(buildQuery(marca, modelo, parts))}&variant=merlin`
 }
 
-// Intento 4: ruta /vehiculos/usado-tipo/marca/modelo/trans-transmisión/
-function buildUrlRuta(marca: string, modelo: string, transmision: string | null): string {
-  const trans = mapTransmision(transmision)
-  const transSufijo = trans ? `${trans.toLowerCase()}-transmisi%C3%B3n/` : ''
-  return `${BASE}/vehiculos/usado-tipo/${slugify(marca)}/${slugify(modelo.split(' ')[0])}/${transSufijo}?variant=merlin`
+// Intento 4: ruta correcta /vehiculos/autos-vehículo/marca/modelo/
+function buildUrlRuta(marca: string, modelo: string): string {
+  return `${BASE}/vehiculos/autos-veh%C3%ADculo/${slugify(marca)}/${slugify(modelo.split(' ')[0])}/`
 }
 
-// Intento 5: ruta sin transmisión /vehiculos/usado-tipo/marca/modelo/
-function buildUrlRutaSinTrans(marca: string, modelo: string): string {
-  return `${BASE}/vehiculos/usado-tipo/${slugify(marca)}/${slugify(modelo.split(' ')[0])}/?variant=merlin`
-}
-
-// Intento 6: solo marca+modelo sin año (query)
+// Intento 5: solo marca+modelo sin año (query)
 function buildUrlFallbackSinAnio(marca: string, modelo: string): string {
   const parts = ['Tipo.Usado']
   return `${BASE}/vehiculos/?q=${encodeURIComponent(buildQuery(marca, modelo, parts))}&variant=merlin`
 }
 
-// Intento 7: ruta solo marca /vehiculos/usado-tipo/marca/
+// Intento 6: ruta solo marca /vehiculos/autos-vehículo/marca/
 function buildUrlRutaMarca(marca: string): string {
-  return `${BASE}/vehiculos/usado-tipo/${slugify(marca)}/?variant=merlin`
+  return `${BASE}/vehiculos/autos-veh%C3%ADculo/${slugify(marca)}/`
 }
 
 interface PrecioRango {
@@ -204,34 +197,26 @@ export async function scrapeChileautos(): Promise<void> {
       await sleep(DELAY_MS)
     }
 
-    // Intento 4: ruta /vehiculos/usado-tipo/marca/modelo/trans-transmisión/
+    // Intento 4: ruta /vehiculos/autos-vehículo/marca/modelo/
     if (!precios) {
-      url = buildUrlRuta(v.marca, v.modelo, v.transmision)
-      console.log(`  [4] ruta con trans: ${url}`)
+      url = buildUrlRuta(v.marca, v.modelo)
+      console.log(`  [4] ruta autos-vehículo: ${url}`)
       precios = await extraerPrecios(url)
       await sleep(DELAY_MS)
     }
 
-    // Intento 5: ruta /vehiculos/usado-tipo/marca/modelo/ sin transmisión
-    if (!precios) {
-      url = buildUrlRutaSinTrans(v.marca, v.modelo)
-      console.log(`  [5] ruta sin trans: ${url}`)
-      precios = await extraerPrecios(url)
-      await sleep(DELAY_MS)
-    }
-
-    // Intento 6: query sin año
+    // Intento 5: query sin año
     if (!precios) {
       url = buildUrlFallbackSinAnio(v.marca, v.modelo)
-      console.log(`  [6] query sin año: ${url}`)
+      console.log(`  [5] query sin año: ${url}`)
       precios = await extraerPrecios(url)
       await sleep(DELAY_MS)
     }
 
-    // Intento 7: ruta solo marca /vehiculos/usado-tipo/marca/
+    // Intento 6: ruta solo marca /vehiculos/autos-vehículo/marca/
     if (!precios) {
       url = buildUrlRutaMarca(v.marca)
-      console.log(`  [7] ruta solo marca: ${url}`)
+      console.log(`  [6] ruta solo marca: ${url}`)
       precios = await extraerPrecios(url)
       await sleep(DELAY_MS)
     }
