@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import type { VehiculoAnalisis } from '../types'
+import { ImagenModal } from './ImagenModal'
 
 interface Props {
   vehiculos: VehiculoAnalisis[]
@@ -86,6 +88,7 @@ function HistoricoInfo({ v }: { v: VehiculoAnalisis }) {
 }
 
 export function VehiculoTable({ vehiculos, loading }: Props) {
+  const [modalImg, setModalImg] = useState<{ src: string; alt: string } | null>(null)
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-24 gap-3">
@@ -105,6 +108,8 @@ export function VehiculoTable({ vehiculos, loading }: Props) {
   }
 
   return (
+    <>
+    {modalImg && <ImagenModal src={modalImg.src} alt={modalImg.alt} onClose={() => setModalImg(null)} />}
     <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -163,12 +168,22 @@ export function VehiculoTable({ vehiculos, loading }: Props) {
                   {/* Foto */}
                   <td className="px-5 py-5">
                     {v.imagen_url ? (
-                      <img
-                        src={v.imagen_url}
-                        alt={`${v.marca} ${v.modelo}`}
-                        className="w-36 h-24 object-cover rounded-lg border border-gray-100 shadow-sm"
-                        onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-                      />
+                      <button
+                        onClick={() => setModalImg({ src: v.imagen_url!, alt: `${v.marca} ${v.modelo}` })}
+                        className="block group relative w-36 h-24 rounded-lg overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-shadow cursor-zoom-in"
+                      >
+                        <img
+                          src={v.imagen_url}
+                          alt={`${v.marca} ${v.modelo}`}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                          onError={e => { (e.target as HTMLImageElement).closest('button')!.style.display = 'none' }}
+                        />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                          <span className="text-white opacity-0 group-hover:opacity-100 transition-opacity text-xs font-medium bg-black/50 px-2 py-1 rounded-full">
+                            🔍 Ver
+                          </span>
+                        </div>
+                      </button>
                     ) : (
                       <div className="w-36 h-24 bg-gray-100 rounded-lg flex items-center justify-center text-3xl border border-gray-100">
                         🚗
@@ -276,5 +291,6 @@ export function VehiculoTable({ vehiculos, loading }: Props) {
         {vehiculos.length} vehículo{vehiculos.length !== 1 ? 's' : ''} encontrado{vehiculos.length !== 1 ? 's' : ''}
       </div>
     </div>
+    </>
   )
 }
