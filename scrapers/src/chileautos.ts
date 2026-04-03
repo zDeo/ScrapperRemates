@@ -74,6 +74,13 @@ function buildUrlFallbackSinAnio(marca: string, modelo: string): string {
   return `${BASE}/vehiculos/?q=${q}&variant=merlin`
 }
 
+/** Fallback 4: URL limpia por ruta /vehiculos/marca/modelo/ */
+function buildUrlRuta(marca: string, modelo: string): string {
+  const marcaSlug  = marca.toLowerCase().replace(/\s+/g, '-')
+  const modeloBase = modelo.split(' ')[0].toLowerCase().replace(/\s+/g, '-')
+  return `${BASE}/vehiculos/${marcaSlug}/${modeloBase}/`
+}
+
 interface PrecioRango {
   min:      number
   max:      number
@@ -210,6 +217,14 @@ export async function scrapeChileautos(): Promise<void> {
     if (!precios) {
       url = buildUrlFallbackSinAnio(v.marca, v.modelo)
       console.log(`  [4] sin año: ${url}`)
+      precios = await extraerPrecios(url)
+      await sleep(DELAY_MS)
+    }
+
+    // Intento 5: URL limpia por ruta /vehiculos/marca/modelo/
+    if (!precios) {
+      url = buildUrlRuta(v.marca, v.modelo)
+      console.log(`  [5] ruta limpia: ${url}`)
       precios = await extraerPrecios(url)
       await sleep(DELAY_MS)
     }
