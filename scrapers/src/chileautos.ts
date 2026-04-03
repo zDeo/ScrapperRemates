@@ -64,12 +64,12 @@ function modeloVariantes(modelo: string): string[] {
     variantes.push(slugify(nombreTokens.slice(0, 2).join(' ')))
   }
 
-  // Variante 2: primera palabra del nombre (ej: "Vitara" cuando viene de "Vitara 2WD")
-  //             o segunda palabra si la primera es adjetivo común (Grand, New, Old)
-  const PREFIJOS = new Set(['GRAND','NEW','OLD','GREAT','SUPER','ALL'])
+  // Variante 2: si la primera palabra es un prefijo marketing (New, Grand, All...),
+  //             poner el nombre sin prefijo PRIMERO (más conocido así en Chileautos)
+  const PREFIJOS = new Set(['GRAND','NEW','OLD','GREAT','SUPER','ALL','GREAT'])
   if (PREFIJOS.has(nombreTokens[0].toUpperCase()) && nombreTokens.length >= 2) {
-    variantes.push(slugify(nombreTokens[1]))       // ej: "Vitara"
-    variantes.push(slugify(nombreTokens[0]))       // ej: "Grand" (por si acaso)
+    // Primero sin prefijo: "Raize", "Vitara"
+    variantes.unshift(slugify(nombreTokens[1]))
   } else {
     variantes.push(slugify(nombreTokens[0]))       // ej: "Gol", "Hilux", "208"
   }
