@@ -2,22 +2,22 @@ import type { VehiculoAnalisis } from '../types'
 
 interface Props {
   vehiculos: VehiculoAnalisis[]
-  loading: boolean
+  loading:   boolean
 }
 
 const EMPRESA_COLORS: Record<string, string> = {
-  Karcal: 'bg-blue-50 text-blue-700 border border-blue-100',
-  Zárate: 'bg-orange-50 text-orange-700 border border-orange-100',
-  Reyco:  'bg-green-50 text-green-700 border border-green-100',
-  Macal:  'bg-purple-50 text-purple-700 border border-purple-100',
+  Karcal: 'bg-blue-100 text-blue-700 border border-blue-200',
+  Zárate: 'bg-orange-100 text-orange-700 border border-orange-200',
+  Reyco:  'bg-green-100 text-green-700 border border-green-200',
+  Macal:  'bg-purple-100 text-purple-700 border border-purple-200',
 }
 
-const COND_COLORS: Record<string, string> = {
-  chatarra:         'bg-red-50 text-red-600',
-  rodante:          'bg-green-50 text-green-600',
-  encendio:         'bg-yellow-50 text-yellow-700',
-  encendio_rodante: 'bg-emerald-50 text-emerald-700',
-  siniestrado:      'bg-orange-50 text-orange-600',
+const COND_COLORS: Record<string, { bg: string; label: string }> = {
+  chatarra:         { bg: 'bg-red-100 text-red-700 border border-red-200',         label: 'Chatarra' },
+  rodante:          { bg: 'bg-green-100 text-green-700 border border-green-200',   label: 'Rodante' },
+  encendio:         { bg: 'bg-yellow-100 text-yellow-700 border border-yellow-200', label: 'Enciende' },
+  encendio_rodante: { bg: 'bg-emerald-100 text-emerald-700 border border-emerald-200', label: 'Enciende y rueda' },
+  siniestrado:      { bg: 'bg-orange-100 text-orange-700 border border-orange-200', label: 'Siniestrado' },
 }
 
 const fmt = (n: number | null | undefined) =>
@@ -26,17 +26,16 @@ const fmt = (n: number | null | undefined) =>
 const fmtFecha = (iso: string | null) => {
   if (!iso) return '—'
   const d = new Date(iso)
-  return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' })
-    + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+  const fecha = d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const hora  = d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+  return { fecha, hora }
 }
 
 function estimarPorAnio(precioRef: number, anioRef: number, anioVehiculo: number): number {
-  const diff = anioRef - anioVehiculo
-  return Math.round(precioRef * Math.pow(0.93, diff))
+  return Math.round(precioRef * Math.pow(0.93, anioRef - anioVehiculo))
 }
 
 function HistoricoInfo({ v }: { v: VehiculoAnalisis }) {
-  // Opción 1: año exacto
   if (v.hist_exacto_precio && v.hist_exacto_cantidad) {
     return (
       <div className="text-gray-400 text-xs">
@@ -44,7 +43,6 @@ function HistoricoInfo({ v }: { v: VehiculoAnalisis }) {
       </div>
     )
   }
-  // Opción 2: ±1 año
   if (v.hist_rango_precio && v.hist_rango_cantidad) {
     return (
       <div className="text-gray-400 text-xs">
@@ -52,38 +50,33 @@ function HistoricoInfo({ v }: { v: VehiculoAnalisis }) {
       </div>
     )
   }
-  // Opción 3: referencia más cercana con características
   if (v.hist_ref_anio && v.hist_ref_precio) {
-    const anioVeh = v.anio ?? v.hist_ref_anio
+    const anioVeh  = v.anio ?? v.hist_ref_anio
     const anioDiff = Math.abs(v.hist_ref_anio - anioVeh)
     const estimado = anioDiff > 0 ? estimarPorAnio(v.hist_ref_precio, v.hist_ref_anio, anioVeh) : null
 
-    // Detectar diferencias de características
     const diffs: string[] = []
     if (v.hist_ref_transmision && v.transmision &&
-        v.hist_ref_transmision.toLowerCase() !== v.transmision.toLowerCase()) {
-      diffs.push(`${v.hist_ref_transmision} (vehículo es ${v.transmision})`)
-    }
+        v.hist_ref_transmision.toLowerCase() !== v.transmision.toLowerCase())
+      diffs.push(`Trans: ${v.hist_ref_transmision} vs ${v.transmision}`)
     if (v.hist_ref_combustible && v.combustible &&
-        v.hist_ref_combustible.toLowerCase() !== v.combustible.toLowerCase()) {
-      diffs.push(`${v.hist_ref_combustible} (vehículo es ${v.combustible})`)
-    }
+        v.hist_ref_combustible.toLowerCase() !== v.combustible.toLowerCase())
+      diffs.push(`Comb: ${v.hist_ref_combustible} vs ${v.combustible}`)
     if (v.hist_ref_traccion && v.traccion &&
-        v.hist_ref_traccion.toLowerCase() !== v.traccion.toLowerCase()) {
-      diffs.push(`${v.hist_ref_traccion} (vehículo es ${v.traccion})`)
-    }
+        v.hist_ref_traccion.toLowerCase() !== v.traccion.toLowerCase())
+      diffs.push(`Trac: ${v.hist_ref_traccion} vs ${v.traccion}`)
 
     return (
-      <div className="space-y-0.5">
-        <div className="text-amber-500 text-xs font-medium">
+      <div className="space-y-1">
+        <div className="text-amber-600 text-xs font-medium">
           Ref. año {v.hist_ref_anio} · {fmt(v.hist_ref_precio)}
         </div>
         {diffs.map((d, i) => (
-          <div key={i} className="text-amber-400 text-xs">⚠ {d}</div>
+          <div key={i} className="text-xs text-amber-500 bg-amber-50 rounded px-1.5 py-0.5">⚠ {d}</div>
         ))}
         {estimado && anioDiff > 0 && (
-          <div className="text-orange-500 text-xs">
-            Est. año {anioVeh}: <span className="font-semibold">{fmt(estimado)}</span>
+          <div className="text-orange-600 text-xs font-medium">
+            Est. año {anioVeh}: {fmt(estimado)}
           </div>
         )}
       </div>
@@ -95,8 +88,8 @@ function HistoricoInfo({ v }: { v: VehiculoAnalisis }) {
 export function VehiculoTable({ vehiculos, loading }: Props) {
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-3">
-        <div className="animate-spin h-9 w-9 border-4 border-blue-500 rounded-full border-t-transparent" />
+      <div className="flex flex-col items-center justify-center py-24 gap-3">
+        <div className="animate-spin h-10 w-10 border-4 border-blue-500 rounded-full border-t-transparent" />
         <span className="text-sm text-gray-400">Cargando vehículos...</span>
       </div>
     )
@@ -104,155 +97,183 @@ export function VehiculoTable({ vehiculos, loading }: Props) {
 
   if (vehiculos.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-2 text-gray-400">
-        <span className="text-4xl">🔍</span>
+      <div className="flex flex-col items-center justify-center py-24 gap-2 text-gray-400">
+        <span className="text-5xl">🔍</span>
         <span className="text-sm">No se encontraron vehículos con esos filtros.</span>
       </div>
     )
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="bg-gray-50 border-b text-gray-500 text-xs uppercase tracking-wide">
-            <th className="px-4 py-3 text-left font-semibold">Empresa</th>
-            <th className="px-4 py-3 text-left font-semibold">Vehículo</th>
-            <th className="px-4 py-3 text-left font-semibold">Foto</th>
-            <th className="px-4 py-3 text-left font-semibold">Año</th>
-            <th className="px-4 py-3 text-left font-semibold">Condición</th>
-            <th className="px-4 py-3 text-left font-semibold">Análisis de precio</th>
-            <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">Valor est. de venta</th>
-            <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">Fecha remate</th>
-            <th className="px-4 py-3 text-left font-semibold">Links</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-50">
-          {vehiculos.map(v => (
-            <tr key={v.id} className="hover:bg-blue-50/20 transition-colors">
+    <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 border-b text-gray-500 text-xs uppercase tracking-wider">
+              <th className="px-5 py-3.5 text-left font-semibold whitespace-nowrap">Empresa</th>
+              <th className="px-5 py-3.5 text-left font-semibold">Vehículo</th>
+              <th className="px-5 py-3.5 text-left font-semibold">Foto</th>
+              <th className="px-5 py-3.5 text-left font-semibold whitespace-nowrap">Condición</th>
+              <th className="px-5 py-3.5 text-left font-semibold whitespace-nowrap">Análisis de precio</th>
+              <th className="px-5 py-3.5 text-left font-semibold whitespace-nowrap">Valor est. venta</th>
+              <th className="px-5 py-3.5 text-left font-semibold whitespace-nowrap">Fecha remate</th>
+              <th className="px-5 py-3.5 text-left font-semibold">Links</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {vehiculos.map(v => {
+              const fecha = fmtFecha(v.fecha_remate)
+              const cond  = COND_COLORS[v.estado_vehiculo ?? '']
+              return (
+                <tr key={v.id} className="hover:bg-slate-50 transition-colors">
 
-              {/* Empresa */}
-              <td className="px-4 py-4">
-                <span className={`px-2 py-1 rounded-full text-xs font-semibold ${EMPRESA_COLORS[v.empresa] ?? 'bg-gray-100 text-gray-600'}`}>
-                  {v.empresa}
-                </span>
-              </td>
-
-              {/* Vehículo */}
-              <td className="px-4 py-4 min-w-[160px]">
-                <div className="font-bold text-gray-900 leading-tight">{v.marca}</div>
-                <div className="text-gray-500 text-xs mt-0.5">{v.modelo}</div>
-                {v.patente && (
-                  <div className="text-gray-400 text-xs mt-1 font-mono">{v.patente}</div>
-                )}
-                {v.kilometraje && (
-                  <div className="text-gray-400 text-xs">{v.kilometraje.toLocaleString('es-CL')} km</div>
-                )}
-              </td>
-
-              {/* Foto */}
-              <td className="px-4 py-4">
-                {v.imagen_url ? (
-                  <img
-                    src={v.imagen_url}
-                    alt={`${v.marca} ${v.modelo}`}
-                    className="w-24 h-16 object-cover rounded-lg border border-gray-100"
-                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-                  />
-                ) : (
-                  <div className="w-24 h-16 bg-gray-100 rounded-lg flex items-center justify-center text-2xl">🚗</div>
-                )}
-              </td>
-
-              {/* Año */}
-              <td className="px-4 py-4 text-gray-700 font-semibold">
-                {v.anio ?? '—'}
-              </td>
-
-              {/* Condición */}
-              <td className="px-4 py-4">
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${COND_COLORS[v.estado_vehiculo ?? ''] ?? 'bg-gray-50 text-gray-500'}`}>
-                  {v.estado_vehiculo ?? '—'}
-                </span>
-              </td>
-
-              {/* Análisis de precio */}
-              <td className="px-4 py-4 min-w-[220px]">
-                <div className="space-y-1.5 text-xs">
-                  <div className="flex justify-between gap-4">
-                    <span className="text-gray-400">Precio base</span>
-                    <span className="font-medium text-gray-700">{fmt(v.precio_base)}</span>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <span className="text-gray-400">Prom. remates</span>
-                    <span className={`font-medium ${v.precio_remate_promedio ? 'text-blue-600' : 'text-gray-300'}`}>
-                      {fmt(v.precio_remate_promedio)}
+                  {/* Empresa */}
+                  <td className="px-5 py-5">
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${EMPRESA_COLORS[v.empresa] ?? 'bg-gray-100 text-gray-600'}`}>
+                      {v.empresa}
                     </span>
-                  </div>
-                  {v.precio_remate_promedio && (
-                    <HistoricoInfo v={v} />
-                  )}
-                  {!v.precio_remate_promedio && (
-                    <span className="text-gray-300">Sin historial en Karcal</span>
-                  )}
-                </div>
-              </td>
+                  </td>
 
-              {/* Precio estimado de venta (mercado) */}
-              <td className="px-4 py-4 min-w-[170px]">
-                {v.precio_mercado_min && v.precio_mercado_max ? (
-                  <div className="space-y-1 text-xs">
-                    <div className="font-bold text-purple-700 text-sm">{fmt(v.precio_mercado_min)}</div>
-                    <div className="text-purple-500 text-xs">— {fmt(v.precio_mercado_max)}</div>
-                    <div className="text-gray-400">
-                      Chileautos · {v.precio_mercado_cantidad ?? '?'} publicaciones
+                  {/* Vehículo + año + patente + km */}
+                  <td className="px-5 py-5 min-w-[180px]">
+                    <div className="font-bold text-gray-900 text-sm leading-tight">{v.marca}</div>
+                    <div className="text-gray-500 text-xs mt-0.5 leading-snug">{v.modelo}</div>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      {v.anio && (
+                        <span className="bg-gray-100 text-gray-600 text-xs font-semibold px-2 py-0.5 rounded">
+                          {v.anio}
+                        </span>
+                      )}
+                      {v.patente && (
+                        <span className="text-gray-400 text-xs font-mono bg-gray-50 border border-gray-200 px-1.5 py-0.5 rounded">
+                          {v.patente}
+                        </span>
+                      )}
                     </div>
-                    {v.margen_porcentaje != null && (
-                      <div className={`font-semibold ${v.margen_porcentaje >= 40 ? 'text-green-600' : v.margen_porcentaje >= 20 ? 'text-yellow-600' : 'text-gray-400'}`}>
-                        {v.margen_porcentaje > 0 ? '+' : ''}{v.margen_porcentaje}% margen
+                    {v.kilometraje != null && (
+                      <div className="text-gray-400 text-xs mt-1">
+                        {v.kilometraje.toLocaleString('es-CL')} km
                       </div>
                     )}
-                  </div>
-                ) : (
-                  <span className="text-gray-300 text-xs">Sin datos</span>
-                )}
-              </td>
+                    {v.transmision && (
+                      <div className="text-gray-400 text-xs">{v.transmision}</div>
+                    )}
+                  </td>
 
-              {/* Fecha remate */}
-              <td className="px-4 py-4 text-xs text-gray-500 whitespace-nowrap">
-                {fmtFecha(v.fecha_remate)}
-              </td>
+                  {/* Foto */}
+                  <td className="px-5 py-5">
+                    {v.imagen_url ? (
+                      <img
+                        src={v.imagen_url}
+                        alt={`${v.marca} ${v.modelo}`}
+                        className="w-36 h-24 object-cover rounded-lg border border-gray-100 shadow-sm"
+                        onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                      />
+                    ) : (
+                      <div className="w-36 h-24 bg-gray-100 rounded-lg flex items-center justify-center text-3xl border border-gray-100">
+                        🚗
+                      </div>
+                    )}
+                  </td>
 
-              {/* Links */}
-              <td className="px-4 py-4">
-                <div className="flex flex-col gap-1">
-                  {v.url_detalle && (
-                    <a href={v.url_detalle} target="_blank" rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline text-xs font-medium">
-                      Ver ficha →
-                    </a>
-                  )}
-                  {v.url_cav && (
-                    <a href={v.url_cav} target="_blank" rel="noopener noreferrer"
-                      className="text-purple-600 hover:underline text-xs">
-                      📋 CAV
-                    </a>
-                  )}
-                  {v.url_inspeccion && (
-                    <a href={v.url_inspeccion} target="_blank" rel="noopener noreferrer"
-                      className="text-gray-500 hover:underline text-xs">
-                      🔍 Inspección
-                    </a>
-                  )}
-                </div>
-              </td>
+                  {/* Condición */}
+                  <td className="px-5 py-5">
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap ${cond?.bg ?? 'bg-gray-100 text-gray-500'}`}>
+                      {cond?.label ?? v.estado_vehiculo ?? '—'}
+                    </span>
+                  </td>
 
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="px-4 py-2 border-t bg-gray-50 text-xs text-gray-400">
-        {vehiculos.length} vehículo{vehiculos.length !== 1 ? 's' : ''}
+                  {/* Análisis de precio */}
+                  <td className="px-5 py-5 min-w-[240px]">
+                    <div className="space-y-1.5 text-xs">
+                      <div className="flex justify-between gap-6">
+                        <span className="text-gray-400 whitespace-nowrap">Precio base</span>
+                        <span className="font-semibold text-gray-700 whitespace-nowrap">{fmt(v.precio_base)}</span>
+                      </div>
+                      <div className="flex justify-between gap-6">
+                        <span className="text-gray-400 whitespace-nowrap">Prom. remates</span>
+                        <span className={`font-semibold whitespace-nowrap ${v.precio_remate_promedio ? 'text-blue-600' : 'text-gray-300'}`}>
+                          {fmt(v.precio_remate_promedio)}
+                        </span>
+                      </div>
+                      {v.precio_remate_promedio
+                        ? <HistoricoInfo v={v} />
+                        : <span className="text-gray-300 italic">Sin historial en Karcal</span>
+                      }
+                    </div>
+                  </td>
+
+                  {/* Valor estimado de venta */}
+                  <td className="px-5 py-5 min-w-[190px]">
+                    {v.precio_mercado_min && v.precio_mercado_max ? (
+                      <div className="space-y-1.5">
+                        <div className="text-xs text-gray-400 whitespace-nowrap">Rango publicaciones</div>
+                        <div className="font-bold text-purple-700">{fmt(v.precio_mercado_min)}</div>
+                        <div className="text-purple-400 text-xs whitespace-nowrap">— {fmt(v.precio_mercado_max)}</div>
+                        <div className="text-gray-400 text-xs whitespace-nowrap">
+                          Chileautos · {v.precio_mercado_cantidad ?? '?'} pub.
+                        </div>
+                        {v.margen_porcentaje != null && (
+                          <div className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${
+                            v.margen_porcentaje >= 40
+                              ? 'bg-green-100 text-green-700'
+                              : v.margen_porcentaje >= 20
+                                ? 'bg-yellow-100 text-yellow-700'
+                                : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            {v.margen_porcentaje > 0 ? '↑' : '↓'} {Math.abs(v.margen_porcentaje)}% margen
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-gray-300 text-xs italic">Sin datos</span>
+                    )}
+                  </td>
+
+                  {/* Fecha remate */}
+                  <td className="px-5 py-5 min-w-[120px]">
+                    {typeof fecha === 'object' ? (
+                      <div>
+                        <div className="text-gray-700 font-medium text-xs whitespace-nowrap">{fecha.fecha}</div>
+                        <div className="text-gray-400 text-xs whitespace-nowrap">{fecha.hora}</div>
+                      </div>
+                    ) : (
+                      <span className="text-gray-300 text-xs">—</span>
+                    )}
+                  </td>
+
+                  {/* Links */}
+                  <td className="px-5 py-5">
+                    <div className="flex flex-col gap-1.5 min-w-[90px]">
+                      {v.url_detalle && (
+                        <a href={v.url_detalle} target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap">
+                          Ver ficha →
+                        </a>
+                      )}
+                      {v.url_cav && (
+                        <a href={v.url_cav} target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap">
+                          📋 CAV
+                        </a>
+                      )}
+                      {v.url_inspeccion && (
+                        <a href={v.url_inspeccion} target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200 px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap">
+                          🔍 Inspección
+                        </a>
+                      )}
+                    </div>
+                  </td>
+
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="px-5 py-3 border-t bg-gray-50 text-xs text-gray-400">
+        {vehiculos.length} vehículo{vehiculos.length !== 1 ? 's' : ''} encontrado{vehiculos.length !== 1 ? 's' : ''}
       </div>
     </div>
   )
