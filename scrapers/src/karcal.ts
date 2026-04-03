@@ -204,7 +204,19 @@ export function parseKarcalVehiculo(html: string, remateId: string): VehiculoInp
   }
 }
 
-async function fetchRemates(maxPaginasInactivo = 2): Promise<{ id: string; fechaTxt: string; estado: 'proximo' | 'cerrado' }[]> {
+/**
+ * Parsea "DD/MM/YYYY" o "DD-MM-YYYY" a Date. Devuelve null si no puede.
+ */
+function parseFechaTexto(txt: string): Date | null {
+  const m = txt.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/)
+  if (!m) return null
+  return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]))
+}
+
+async function fetchRemates(
+  maxPaginasInactivo = 2,
+  fechaCorte: Date | null = null,
+): Promise<{ id: string; fechaTxt: string; estado: 'proximo' | 'cerrado' }[]> {
   const resultados: { id: string; fechaTxt: string; estado: 'proximo' | 'cerrado' }[] = []
   const vistosIds = new Set<string>()
 
@@ -222,26 +234,42 @@ async function fetchRemates(maxPaginasInactivo = 2): Promise<{ id: string; fecha
     resultados.push({ id: idMatch[1], fechaTxt: fechaMatch?.[0] ?? '', estado: 'proximo' })
   })
 
-  // Inactivos con paginación controlada
-  for (let pag = 1; pag <= maxPaginasInactivo; pag++) {
+  // Inactivos: pagina hasta el límite o hasta la fecha de corte
+  for (let pag = 1; ; pag++) {
+    // Si no hay fecha de corte, respetar el límite de páginas
+    if (!fechaCorte && pag > maxPaginasInactivo) break
+
     const url  = `${BASE_URL}/?EstadoRemate=Inactivo&NumPag=${pag}`
+    console.log(`[Karcal] Página inactivos ${pag}${fechaCorte ? ` (corte: ${fechaCorte.toLocaleDateString('es-CL')})` : ''}`)
     const res  = await fetch(url, { headers: HEADERS })
     const html = await res.text()
     const $    = cheerio.load(html)
-    let   hayNuevos = false
+
+    let hayNuevos      = false
+    let todosAnteriores = true   // todos los remates de esta página son más viejos que la fecha de corte
 
     $('a[href*="/Listado/Index/"]').each((_, el) => {
       const href    = $(el).attr('href') ?? ''
       const idMatch = href.match(/\/Listado\/Index\/(\d+)/)
       if (!idMatch || vistosIds.has(idMatch[1])) return
-      vistosIds.add(idMatch[1])
-      hayNuevos = true
+
       const contenedor = $(el).closest('tr, li, div').text().trim()
       const fechaMatch = contenedor.match(/\d{2}[\/\-]\d{2}[\/\-]\d{4}/)
-      resultados.push({ id: idMatch[1], fechaTxt: fechaMatch?.[0] ?? '', estado: 'cerrado' })
+      const fechaTxt   = fechaMatch?.[0] ?? ''
+      const fechaDate  = parseFechaTexto(fechaTxt)
+
+      // Si hay fecha de corte y este remate es más viejo → saltar
+      if (fechaCorte && fechaDate && fechaDate < fechaCorte) return
+
+      vistosIds.add(idMatch[1])
+      hayNuevos       = true
+      todosAnteriores = false
+      resultados.push({ id: idMatch[1], fechaTxt, estado: 'cerrado' })
     })
 
-    if (!hayNuevos) break
+    // Parar si no hay remates nuevos en la página o todos son muy viejos
+    if (!hayNuevos || (fechaCorte && todosAnteriores)) break
+
     await sleep(500)
   }
 
@@ -334,13 +362,17 @@ function parseFechaChilena(texto: string): string | null {
   return `${m[3]}-${m[2]}-${m[1]}T00:00:00-04:00`
 }
 
-export async function scrapeKarcalHistorico(empresaId: string, maxPaginas = 11): Promise<void> {
-  return scrapeKarcal(empresaId, maxPaginas)
+export async function scrapeKarcalHistorico(empresaId: string): Promise<void> {
+  // Cargar hasta 1 año atrás, sin límite de páginas
+  const fechaCorte = new Date()
+  fechaCorte.setFullYear(fechaCorte.getFullYear() - 1)
+  console.log(`[Karcal Histórico] Cargando remates desde ${fechaCorte.toLocaleDateString('es-CL')} hasta hoy...`)
+  return scrapeKarcal(empresaId, 999, fechaCorte)
 }
 
-export async function scrapeKarcal(empresaId: string, maxPaginasInactivo = 2): Promise<void> {
+export async function scrapeKarcal(empresaId: string, maxPaginasInactivo = 2, fechaCorte: Date | null = null): Promise<void> {
   console.log(`[Karcal] Iniciando (max ${maxPaginasInactivo} páginas inactivo)...`)
-  const remates = await fetchRemates(maxPaginasInactivo)
+  const remates = await fetchRemates(maxPaginasInactivo, fechaCorte)
   console.log(`[Karcal] ${remates.length} remates encontrados`)
 
   for (const r of remates) {
