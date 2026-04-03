@@ -17,74 +17,58 @@ function mapTransmision(t: string | null | undefined): string | null {
   return null
 }
 
-function buildUrl(
-  marca:       string,
-  modelo:      string,
-  anio:        number,
-  km:          number | null,
-  transmision: string | null,
-): string {
-  const marcaNorm  = marca.charAt(0).toUpperCase()  + marca.slice(1).toLowerCase()
-  const modeloBase = modelo.split(' ')[0]
-  const modeloNorm = modeloBase.charAt(0).toUpperCase() + modeloBase.slice(1).toLowerCase()
+function normMarca(m: string)  { return m.charAt(0).toUpperCase() + m.slice(1).toLowerCase() }
+function normModelo(m: string) {
+  const base = m.split(' ')[0]
+  return base.charAt(0).toUpperCase() + base.slice(1).toLowerCase()
+}
+function slugify(s: string) { return s.toLowerCase().replace(/\s+/g, '-') }
 
-  const filters: string[] = [
-    `(C.Marca.${marcaNorm}._.Modelo.${modeloNorm}.)`,
-    `Tipo.Usado`,
-    `Ano.range(${anio - ANIO_RANGO}..${anio + ANIO_RANGO})`,
-  ]
+/**
+ * Formato correcto Chileautos:
+ * (And.(C.Marca.X._.Modelo.Y.)_.Tipo.Usado._.Ano.range(A..B)._.Transmisión.Z._.Kilometraje.range(C..D).)
+ */
+function buildQuery(marca: string, modelo: string, parts: string[]): string {
+  const mm = `(C.Marca.${normMarca(marca)}._.Modelo.${normModelo(modelo)}.)`
+  const filters = parts.map(p => `_.${p}.`).join('')
+  return `(And.${mm}${filters})`
+}
 
+// Intento 1: año±2 + km±50k + transmisión
+function buildUrl(marca: string, modelo: string, anio: number, km: number | null, transmision: string | null): string {
+  const parts = ['Tipo.Usado', `Ano.range(${anio - ANIO_RANGO}..${anio + ANIO_RANGO})`]
   const trans = mapTransmision(transmision)
-  if (trans) filters.push(`Transmisión.${trans}`)
-
-  if (km != null && km > 0) {
-    const kmMin = Math.max(0, km - KM_RANGO)
-    const kmMax = km + KM_RANGO
-    filters.push(`Kilometraje.range(${kmMin}..${kmMax})`)
-  }
-
-  const q = encodeURIComponent(`(And.${filters.join('._.')}.`)
-  return `${BASE}/vehiculos/?q=${q}&variant=merlin`
+  if (trans) parts.push(`Transmisión.${trans}`)
+  if (km != null && km > 0) parts.push(`Kilometraje.range(${Math.max(0, km - KM_RANGO)}..${km + KM_RANGO})`)
+  return `${BASE}/vehiculos/?q=${encodeURIComponent(buildQuery(marca, modelo, parts))}&variant=merlin`
 }
 
-/** Fallback 1: año±2 sin km ni transmisión */
+// Intento 2: año±2 sin km ni transmisión
 function buildUrlFallback(marca: string, modelo: string, anio: number): string {
-  const marcaNorm  = marca.charAt(0).toUpperCase() + marca.slice(1).toLowerCase()
-  const modeloBase = modelo.split(' ')[0]
-  const modeloNorm = modeloBase.charAt(0).toUpperCase() + modeloBase.slice(1).toLowerCase()
-  const q = encodeURIComponent(`(And.(C.Marca.${marcaNorm}._.Modelo.${modeloNorm}.).Tipo.Usado._.Ano.range(${anio - ANIO_RANGO}..${anio + ANIO_RANGO}).`)
-  return `${BASE}/vehiculos/?q=${q}&variant=merlin`
+  const parts = ['Tipo.Usado', `Ano.range(${anio - ANIO_RANGO}..${anio + ANIO_RANGO})`]
+  return `${BASE}/vehiculos/?q=${encodeURIComponent(buildQuery(marca, modelo, parts))}&variant=merlin`
 }
 
-/** Fallback 2: año±5 sin otros filtros */
+// Intento 3: año±5
 function buildUrlFallbackAnioAmplio(marca: string, modelo: string, anio: number): string {
-  const marcaNorm  = marca.charAt(0).toUpperCase() + marca.slice(1).toLowerCase()
-  const modeloBase = modelo.split(' ')[0]
-  const modeloNorm = modeloBase.charAt(0).toUpperCase() + modeloBase.slice(1).toLowerCase()
-  const q = encodeURIComponent(`(And.(C.Marca.${marcaNorm}._.Modelo.${modeloNorm}.).Tipo.Usado._.Ano.range(${anio - 5}..${anio + 5}).`)
-  return `${BASE}/vehiculos/?q=${q}&variant=merlin`
+  const parts = ['Tipo.Usado', `Ano.range(${anio - 5}..${anio + 5})`]
+  return `${BASE}/vehiculos/?q=${encodeURIComponent(buildQuery(marca, modelo, parts))}&variant=merlin`
 }
 
-/** Fallback 3: solo marca+modelo sin año */
-function buildUrlFallbackSinAnio(marca: string, modelo: string): string {
-  const marcaNorm  = marca.charAt(0).toUpperCase() + marca.slice(1).toLowerCase()
-  const modeloBase = modelo.split(' ')[0]
-  const modeloNorm = modeloBase.charAt(0).toUpperCase() + modeloBase.slice(1).toLowerCase()
-  const q = encodeURIComponent(`(And.(C.Marca.${marcaNorm}._.Modelo.${modeloNorm}.).Tipo.Usado.`)
-  return `${BASE}/vehiculos/?q=${q}&variant=merlin`
-}
-
-/** Fallback 4: URL limpia por ruta /vehiculos/marca/modelo/ */
+// Intento 4: ruta limpia /vehiculos/autos-vehículo/usado-tipo/marca/modelo/
 function buildUrlRuta(marca: string, modelo: string): string {
-  const marcaSlug  = marca.toLowerCase().replace(/\s+/g, '-')
-  const modeloBase = modelo.split(' ')[0].toLowerCase().replace(/\s+/g, '-')
-  return `${BASE}/vehiculos/${marcaSlug}/${modeloBase}/`
+  return `${BASE}/vehiculos/autos-veh%C3%ADculo/usado-tipo/${slugify(marca)}/${slugify(modelo.split(' ')[0])}/`
 }
 
-/** Fallback 5: ruta limpia solo por marca /vehiculos/marca/ (sin modelo) */
+// Intento 5: solo marca+modelo sin año (query)
+function buildUrlFallbackSinAnio(marca: string, modelo: string): string {
+  const parts = ['Tipo.Usado']
+  return `${BASE}/vehiculos/?q=${encodeURIComponent(buildQuery(marca, modelo, parts))}&variant=merlin`
+}
+
+// Intento 6: ruta limpia solo marca /vehiculos/autos-vehículo/usado-tipo/marca/
 function buildUrlRutaMarca(marca: string): string {
-  const marcaSlug = marca.toLowerCase().replace(/\s+/g, '-')
-  return `${BASE}/vehiculos/${marcaSlug}/`
+  return `${BASE}/vehiculos/autos-veh%C3%ADculo/usado-tipo/${slugify(marca)}/`
 }
 
 interface PrecioRango {
