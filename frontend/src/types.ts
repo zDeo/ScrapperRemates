@@ -34,6 +34,9 @@ export interface VehiculoAnalisis {
   hist_rango_cantidad: number | null
   hist_ref_anio: number | null
   hist_ref_precio: number | null
+  hist_ref_transmision: string | null
+  hist_ref_combustible: string | null
+  hist_ref_traccion: string | null
 }
 
 export interface Filtros {

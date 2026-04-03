@@ -30,9 +30,8 @@ const fmtFecha = (iso: string | null) => {
     + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
 }
 
-// Aplica depreciación/apreciación del 7% anual para estimar precio ajustado por año
 function estimarPorAnio(precioRef: number, anioRef: number, anioVehiculo: number): number {
-  const diff = anioRef - anioVehiculo  // positivo = ref más nuevo (más caro)
+  const diff = anioRef - anioVehiculo
   return Math.round(precioRef * Math.pow(0.93, diff))
 }
 
@@ -41,7 +40,7 @@ function HistoricoInfo({ v }: { v: VehiculoAnalisis }) {
   if (v.hist_exacto_precio && v.hist_exacto_cantidad) {
     return (
       <div className="text-gray-400 text-xs">
-        Año exacto · {v.hist_exacto_cantidad} remate{v.hist_exacto_cantidad !== 1 ? 's' : ''}
+        Año {v.anio} · {v.hist_exacto_cantidad} remate{v.hist_exacto_cantidad !== 1 ? 's' : ''}
       </div>
     )
   }
@@ -53,23 +52,38 @@ function HistoricoInfo({ v }: { v: VehiculoAnalisis }) {
       </div>
     )
   }
-  // Opción 3: año más cercano con ajuste por diferencia de años
+  // Opción 3: referencia más cercana con características
   if (v.hist_ref_anio && v.hist_ref_precio) {
     const anioVeh = v.anio ?? v.hist_ref_anio
-    const diff = Math.abs(v.hist_ref_anio - anioVeh)
-    const estimado = diff > 0 ? estimarPorAnio(v.hist_ref_precio, v.hist_ref_anio, anioVeh) : null
+    const anioDiff = Math.abs(v.hist_ref_anio - anioVeh)
+    const estimado = anioDiff > 0 ? estimarPorAnio(v.hist_ref_precio, v.hist_ref_anio, anioVeh) : null
+
+    // Detectar diferencias de características
+    const diffs: string[] = []
+    if (v.hist_ref_transmision && v.transmision &&
+        v.hist_ref_transmision.toLowerCase() !== v.transmision.toLowerCase()) {
+      diffs.push(`${v.hist_ref_transmision} (vehículo es ${v.transmision})`)
+    }
+    if (v.hist_ref_combustible && v.combustible &&
+        v.hist_ref_combustible.toLowerCase() !== v.combustible.toLowerCase()) {
+      diffs.push(`${v.hist_ref_combustible} (vehículo es ${v.combustible})`)
+    }
+    if (v.hist_ref_traccion && v.traccion &&
+        v.hist_ref_traccion.toLowerCase() !== v.traccion.toLowerCase()) {
+      diffs.push(`${v.hist_ref_traccion} (vehículo es ${v.traccion})`)
+    }
+
     return (
       <div className="space-y-0.5">
         <div className="text-amber-500 text-xs font-medium">
-          Ref. más cercana: año {v.hist_ref_anio}
+          Ref. año {v.hist_ref_anio} · {fmt(v.hist_ref_precio)}
         </div>
-        <div className="text-amber-400 text-xs">
-          Precio en {v.hist_ref_anio}: {fmt(v.hist_ref_precio)}
-        </div>
-        {estimado && diff > 0 && (
-          <div className="text-xs text-orange-500">
-            Est. año {anioVeh}:
-            <span className="font-semibold ml-1">{fmt(estimado)}</span>
+        {diffs.map((d, i) => (
+          <div key={i} className="text-amber-400 text-xs">⚠ {d}</div>
+        ))}
+        {estimado && anioDiff > 0 && (
+          <div className="text-orange-500 text-xs">
+            Est. año {anioVeh}: <span className="font-semibold">{fmt(estimado)}</span>
           </div>
         )}
       </div>
