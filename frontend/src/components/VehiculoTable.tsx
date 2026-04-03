@@ -90,12 +90,19 @@ function HistoricoInfo({ v }: { v: VehiculoAnalisis }) {
   }
   // Nivel 4: modelos similares (MACAN ≈ MACAN GTS ≈ MACAN S)
   if (v.hist_similar_precio && v.hist_similar_resumen) {
+    const variantes = v.hist_similar_resumen.split(', ')
     return (
       <div className="space-y-1">
         <div className="text-amber-600 text-xs font-medium">
           Modelos similares · {v.hist_similar_cantidad} remate{(v.hist_similar_cantidad ?? 0) !== 1 ? 's' : ''}
         </div>
-        <div className="text-xs text-gray-500 leading-tight">{v.hist_similar_resumen}</div>
+        <div className="space-y-0.5">
+          {variantes.map((item, i) => (
+            <div key={i} className="text-xs text-gray-500 font-mono">
+              ${item}
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
