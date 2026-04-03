@@ -22,6 +22,8 @@ export interface VehiculoAnalisis {
   estado_remate: string
   precio_remate_promedio: number | null
   precio_mercado: number | null
+  precio_mercado_min: number | null
+  precio_mercado_max: number | null
   margen_estimado_clp: number | null
   margen_porcentaje: number | null
   precio_sugerido_compra: number | null

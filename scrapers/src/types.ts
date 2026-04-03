@@ -37,9 +37,12 @@ export interface VehiculoInput {
 }
 
 export interface PrecioMercadoInput {
+  vehiculo_id: string
   marca: string
   modelo: string
   anio: number
   precio_mercado: number
+  precio_min: number
+  precio_max: number
   fuente: string
 }
