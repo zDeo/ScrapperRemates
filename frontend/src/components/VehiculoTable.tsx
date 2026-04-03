@@ -99,18 +99,22 @@ function HistoricoInfo({ v }: { v: VehiculoAnalisis }) {
         {items ? (
           <div className="space-y-0.5">
             {items.map((item, i) => (
-              <div
-                key={i}
-                onDoubleClick={() => item.url && window.open(item.url, '_blank')}
-                title={item.url ? 'Doble clic para ver la ficha del remate' : undefined}
-                className={`text-xs font-mono leading-tight ${
-                  item.url
-                    ? 'text-blue-600 cursor-pointer hover:underline select-none'
-                    : 'text-gray-500'
-                }`}
-              >
-                ${Math.round(item.precio / 1000000)}M {item.modelo}
-              </div>
+              item.url ? (
+                <a
+                  key={i}
+                  href={item.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Ver ficha del remate anterior"
+                  className="block text-xs font-mono leading-tight text-blue-600 hover:text-blue-800 hover:underline"
+                >
+                  ${Math.round(item.precio / 1000000)}M {item.modelo} →
+                </a>
+              ) : (
+                <div key={i} className="text-xs font-mono leading-tight text-gray-500">
+                  ${Math.round(item.precio / 1000000)}M {item.modelo}
+                </div>
+              )
             ))}
           </div>
         ) : (
