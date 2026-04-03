@@ -25,6 +25,60 @@ function normModelo(m: string) {
 function slugify(s: string) { return s.toLowerCase().replace(/\s+/g, '-') }
 
 /**
+ * Genera variantes del modelo para buscar en Chileautos.
+ * Ej: "GRAND VITARA 2WD 1.5 AT" → ["Grand-Vitara", "Vitara", "Grand"]
+ * Ej: "NEW RAIZE 1.2"           → ["New-Raize", "Raize"]
+ * Ej: "HILUX DCAB TDI 4X4 2.8" → ["Hilux"]
+ * Ej: "GOL HIGHLINE 1.6"        → ["Gol"]
+ * Ej: "208 BLUE HDI HB 1.5"     → ["208"]
+ */
+function modeloVariantes(modelo: string): string[] {
+  const tokens = modelo.split(' ').filter(Boolean)
+  const variantes: string[] = []
+
+  // Palabras que son parte del nombre del modelo (no versión/motor)
+  const STOPWORDS = new Set([
+    '2WD','4WD','4X4','4X2','AT','MT','TDI','HDI','HB','DC','DCAB','CREW','CAB',
+    'GLX','GLS','GLI','GLE','SXT','LTZ','LT','LS','RS','GT','GTS','STI','TRD',
+    'AUT','MAN','AWD','RWD','FWD','SDN','SW','PLUS','PRO','MAX','SPORT','TURBO',
+    'DIESEL','GASOLINA','ELECTRICO','HIBRIDO','AUTO','AUTOMATICA','MANUAL',
+  ])
+
+  // Tokens que parecen números de motor (1.5, 2.0, 5.3, etc.)
+  const esMotor = (t: string) => /^\d+[\.,]\d+$/.test(t)
+  // Tokens que son solo números (208, 308, etc.) — pueden ser el modelo
+  const esSoloNumero = (t: string) => /^\d+$/.test(t)
+
+  // Filtrar tokens que son parte del nombre real del modelo
+  const nombreTokens = tokens.filter(t =>
+    !STOPWORDS.has(t.toUpperCase()) && !esMotor(t)
+  )
+
+  if (nombreTokens.length === 0) {
+    variantes.push(slugify(tokens[0]))
+    return variantes
+  }
+
+  // Variante 1: primeras 2 palabras del nombre (ej: "Grand-Vitara", "New-Raize")
+  if (nombreTokens.length >= 2) {
+    variantes.push(slugify(nombreTokens.slice(0, 2).join(' ')))
+  }
+
+  // Variante 2: primera palabra del nombre (ej: "Vitara" cuando viene de "Vitara 2WD")
+  //             o segunda palabra si la primera es adjetivo común (Grand, New, Old)
+  const PREFIJOS = new Set(['GRAND','NEW','OLD','GREAT','SUPER','ALL'])
+  if (PREFIJOS.has(nombreTokens[0].toUpperCase()) && nombreTokens.length >= 2) {
+    variantes.push(slugify(nombreTokens[1]))       // ej: "Vitara"
+    variantes.push(slugify(nombreTokens[0]))       // ej: "Grand" (por si acaso)
+  } else {
+    variantes.push(slugify(nombreTokens[0]))       // ej: "Gol", "Hilux", "208"
+  }
+
+  // Eliminar duplicados manteniendo orden
+  return [...new Set(variantes)]
+}
+
+/**
  * Formato correcto Chileautos:
  * (And.(C.Marca.X._.Modelo.Y.)_.Tipo.Usado._.Ano.range(A..B)._.Transmisión.Z._.Kilometraje.range(C..D).)
  */
@@ -176,47 +230,56 @@ export async function scrapeChileautos(): Promise<void> {
   for (const v of vehiculos as any[]) {
     console.log(`[Chileautos] ${v.marca} ${v.modelo} ${v.anio} (${v.kilometraje ?? '?'} km, ${v.transmision ?? '-'})`)
 
-    // Intento 1: ruta limpia + año±2 + km±50k + transmisión
-    let url = buildUrl(v.marca, v.modelo, v.anio, v.kilometraje, v.transmision)
-    console.log(`  [1] año±2 + km + trans: ${url}`)
-    let precios = await extraerPrecios(url)
+    const variantes = modeloVariantes(v.modelo)
+    console.log(`  Variantes modelo: ${variantes.join(', ')}`)
 
-    // Intento 2: ruta limpia + año±2 sin km/trans
-    if (!precios) {
-      url = buildUrlFallback(v.marca, v.modelo, v.anio)
-      console.log(`  [2] año±2 sin km/trans: ${url}`)
+    let precios: PrecioRango | null = null
+    let url = ''
+
+    // Para cada variante del modelo, probar con distintos niveles de filtros
+    for (const variante of variantes) {
+      if (precios) break
+
+      // A: año±2 + km±50k + transmisión
+      url = buildUrl(v.marca, variante, v.anio, v.kilometraje, v.transmision)
+      console.log(`  [A:${variante}] año±2+km+trans: ${url}`)
       precios = await extraerPrecios(url)
+      if (precios) break
+      await sleep(DELAY_MS)
+
+      // B: año±2 sin km/trans
+      url = buildUrlFallback(v.marca, variante, v.anio)
+      console.log(`  [B:${variante}] año±2: ${url}`)
+      precios = await extraerPrecios(url)
+      if (precios) break
+      await sleep(DELAY_MS)
+
+      // C: año±5
+      url = buildUrlFallbackAnioAmplio(v.marca, variante, v.anio)
+      console.log(`  [C:${variante}] año±5: ${url}`)
+      precios = await extraerPrecios(url)
+      if (precios) break
+      await sleep(DELAY_MS)
+
+      // D: ruta /vehiculos/autos-vehículo/marca/variante/
+      url = buildUrlRuta(v.marca, variante)
+      console.log(`  [D:${variante}] ruta: ${url}`)
+      precios = await extraerPrecios(url)
+      if (precios) break
+      await sleep(DELAY_MS)
+
+      // E: query sin año
+      url = buildUrlFallbackSinAnio(v.marca, variante)
+      console.log(`  [E:${variante}] sin año: ${url}`)
+      precios = await extraerPrecios(url)
+      if (precios) break
       await sleep(DELAY_MS)
     }
 
-    // Intento 3: ruta limpia + año±5
-    if (!precios) {
-      url = buildUrlFallbackAnioAmplio(v.marca, v.modelo, v.anio)
-      console.log(`  [3] año±5: ${url}`)
-      precios = await extraerPrecios(url)
-      await sleep(DELAY_MS)
-    }
-
-    // Intento 4: ruta /vehiculos/autos-vehículo/marca/modelo/
-    if (!precios) {
-      url = buildUrlRuta(v.marca, v.modelo)
-      console.log(`  [4] ruta autos-vehículo: ${url}`)
-      precios = await extraerPrecios(url)
-      await sleep(DELAY_MS)
-    }
-
-    // Intento 5: query sin año
-    if (!precios) {
-      url = buildUrlFallbackSinAnio(v.marca, v.modelo)
-      console.log(`  [5] query sin año: ${url}`)
-      precios = await extraerPrecios(url)
-      await sleep(DELAY_MS)
-    }
-
-    // Intento 6: ruta solo marca /vehiculos/autos-vehículo/marca/
+    // Último recurso: solo marca
     if (!precios) {
       url = buildUrlRutaMarca(v.marca)
-      console.log(`  [6] ruta solo marca: ${url}`)
+      console.log(`  [F] ruta solo marca: ${url}`)
       precios = await extraerPrecios(url)
       await sleep(DELAY_MS)
     }
