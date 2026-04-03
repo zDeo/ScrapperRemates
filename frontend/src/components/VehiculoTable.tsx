@@ -195,12 +195,6 @@ export function VehiculoTable({ vehiculos, loading }: Props) {
                   {!v.precio_remate_promedio && (
                     <span className="text-gray-300">Sin historial en Karcal</span>
                   )}
-                  {v.precio_sugerido_compra && (
-                    <div className="flex justify-between gap-4 pt-1 border-t border-gray-100">
-                      <span className="text-gray-400 font-medium">✅ Comprar a</span>
-                      <span className="font-bold text-green-700">{fmt(v.precio_sugerido_compra)}</span>
-                    </div>
-                  )}
                 </div>
               </td>
 
