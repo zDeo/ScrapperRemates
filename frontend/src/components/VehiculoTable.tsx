@@ -38,8 +38,8 @@ function estimarPorAnio(precioRef: number, anioRef: number, anioVehiculo: number
   return Math.round(precioRef * Math.pow(0.93, anioRef - anioVehiculo))
 }
 
-function HistoricoInfo({ v }: { v: VehiculoAnalisis }) {
-  // Nivel 1: modelo exacto + año exacto
+/** Contexto del promedio de remates (niveles 1-3: exacto, ±1 año, referencia) */
+function HistoricoContext({ v }: { v: VehiculoAnalisis }) {
   if (v.hist_exacto_precio && v.hist_exacto_cantidad) {
     return (
       <div className="text-gray-400 text-xs">
@@ -47,7 +47,6 @@ function HistoricoInfo({ v }: { v: VehiculoAnalisis }) {
       </div>
     )
   }
-  // Nivel 2: modelo exacto + ±1 año
   if (v.hist_rango_precio && v.hist_rango_cantidad) {
     return (
       <div className="text-gray-400 text-xs">
@@ -55,8 +54,7 @@ function HistoricoInfo({ v }: { v: VehiculoAnalisis }) {
       </div>
     )
   }
-  // Nivel 3: modelo exacto + año de referencia más cercano
-  if (v.hist_ref_anio && v.hist_ref_precio) {
+  if (v.hist_ref_anio && v.hist_ref_precio && !v.hist_similar_precio) {
     const anioVeh  = v.anio ?? v.hist_ref_anio
     const anioDiff = Math.abs(v.hist_ref_anio - anioVeh)
     const estimado = anioDiff > 0 ? estimarPorAnio(v.hist_ref_precio, v.hist_ref_anio, anioVeh) : null
@@ -68,62 +66,59 @@ function HistoricoInfo({ v }: { v: VehiculoAnalisis }) {
     if (v.hist_ref_combustible && v.combustible &&
         v.hist_ref_combustible.toLowerCase() !== v.combustible.toLowerCase())
       diffs.push(`Comb: ${v.hist_ref_combustible} vs ${v.combustible}`)
-    if (v.hist_ref_traccion && v.traccion &&
-        v.hist_ref_traccion.toLowerCase() !== v.traccion.toLowerCase())
-      diffs.push(`Trac: ${v.hist_ref_traccion} vs ${v.traccion}`)
 
     return (
-      <div className="space-y-1">
-        <div className="text-amber-600 text-xs font-medium">
-          Ref. año {v.hist_ref_anio} · {fmt(v.hist_ref_precio)}
-        </div>
+      <div className="space-y-0.5">
+        <div className="text-amber-600 text-xs">Ref. año {v.hist_ref_anio}</div>
         {diffs.map((d, i) => (
-          <div key={i} className="text-xs text-amber-500 bg-amber-50 rounded px-1.5 py-0.5">⚠ {d}</div>
+          <div key={i} className="text-xs text-amber-500">⚠ {d}</div>
         ))}
         {estimado && anioDiff > 0 && (
-          <div className="text-orange-600 text-xs font-medium">
-            Est. año {anioVeh}: {fmt(estimado)}
-          </div>
-        )}
-      </div>
-    )
-  }
-  // Nivel 4: modelos similares (MACAN ≈ MACAN GTS ≈ MACAN S)
-  if (v.hist_similar_precio) {
-    const items = Array.isArray(v.hist_similar_resumen) ? v.hist_similar_resumen : null
-    return (
-      <div className="space-y-1">
-        <div className="text-amber-600 text-xs font-medium">
-          Modelos similares · {v.hist_similar_cantidad} remate{(v.hist_similar_cantidad ?? 0) !== 1 ? 's' : ''}
-        </div>
-        {items ? (
-          <div className="space-y-0.5">
-            {items.map((item, i) => (
-              item.url ? (
-                <a
-                  key={i}
-                  href={item.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="Ver ficha del remate anterior"
-                  className="block text-xs font-mono leading-tight text-blue-600 hover:text-blue-800 hover:underline"
-                >
-                  ${parseFloat((item.precio / 1000000).toFixed(1))}M {item.modelo} →
-                </a>
-              ) : (
-                <div key={i} className="text-xs font-mono leading-tight text-gray-500">
-                  ${parseFloat((item.precio / 1000000).toFixed(1))}M {item.modelo}
-                </div>
-              )
-            ))}
-          </div>
-        ) : (
-          <div className="text-xs text-gray-500 italic">Ejecuta migración 009 para ver detalle</div>
+          <div className="text-orange-600 text-xs">Est. año {anioVeh}: {fmt(estimado)}</div>
         )}
       </div>
     )
   }
   return null
+}
+
+/** Columna dedicada a modelos similares */
+function ModelosSimilares({ v }: { v: VehiculoAnalisis }) {
+  if (!v.hist_similar_precio) {
+    return <span className="text-gray-300 text-xs">—</span>
+  }
+  const items = Array.isArray(v.hist_similar_resumen) ? v.hist_similar_resumen : null
+  return (
+    <div className="space-y-1">
+      <div className="text-amber-600 text-xs font-medium">
+        Modelos similares · {v.hist_similar_cantidad} remate{(v.hist_similar_cantidad ?? 0) !== 1 ? 's' : ''}
+      </div>
+      {items ? (
+        <div className="space-y-0.5">
+          {items.map((item, i) =>
+            item.url ? (
+              <a
+                key={i}
+                href={item.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Ver ficha del remate anterior"
+                className="block text-xs font-mono leading-tight text-blue-600 hover:text-blue-800 hover:underline"
+              >
+                ${parseFloat((item.precio / 1000000).toFixed(1))}M {item.modelo} →
+              </a>
+            ) : (
+              <div key={i} className="text-xs font-mono leading-tight text-gray-500">
+                ${parseFloat((item.precio / 1000000).toFixed(1))}M {item.modelo}
+              </div>
+            )
+          )}
+        </div>
+      ) : (
+        <div className="text-xs text-gray-400 italic">Ejecuta migración 009</div>
+      )}
+    </div>
+  )
 }
 
 export function VehiculoTable({ vehiculos, loading }: Props) {
@@ -165,8 +160,8 @@ export function VehiculoTable({ vehiculos, loading }: Props) {
               <th className="px-3 py-3 text-left font-semibold">Vehículo</th>
               <th className="px-3 py-3 text-left font-semibold">Foto</th>
               <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Condición</th>
-              <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Análisis de precio</th>
-              <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Valor est. venta</th>
+              <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Precios</th>
+              <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Remates similares</th>
               <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Deudas</th>
               <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Fecha remate</th>
               <th className="px-3 py-3 text-left font-semibold">Links</th>
@@ -246,55 +241,63 @@ export function VehiculoTable({ vehiculos, loading }: Props) {
                     </span>
                   </td>
 
-                  {/* Análisis de precio */}
-                  <td className="px-3 py-3 min-w-[210px]">
+                  {/* Precios unificados */}
+                  <td className="px-3 py-3 min-w-[200px]">
                     <div className="space-y-1.5 text-xs">
+                      {/* Precio base */}
                       <div className="flex justify-between gap-4">
                         <span className="text-gray-400 whitespace-nowrap">Precio base</span>
                         <span className="font-semibold text-gray-700 whitespace-nowrap">{fmt(v.precio_base)}</span>
                       </div>
+
+                      {/* Promedio remates */}
                       <div className="flex justify-between gap-4">
                         <span className="text-gray-400 whitespace-nowrap">Prom. remates</span>
                         <span className={`font-semibold whitespace-nowrap ${v.precio_remate_promedio ? 'text-blue-600' : 'text-gray-300'}`}>
                           {fmt(v.precio_remate_promedio)}
                         </span>
                       </div>
-                      {v.precio_remate_promedio
-                        ? <HistoricoInfo v={v} />
-                        : <span className="text-gray-300 italic">Sin historial en Karcal</span>
-                      }
+                      <HistoricoContext v={v} />
+
+                      {/* Separador */}
+                      <div className="border-t border-gray-100" />
+
+                      {/* Valor venta Chileautos */}
+                      <div className="flex justify-between gap-4">
+                        <span className="text-gray-400 whitespace-nowrap">Valor venta</span>
+                        <span className={`font-semibold whitespace-nowrap ${v.precio_mercado ? 'text-purple-700' : 'text-gray-300'}`}>
+                          {v.precio_mercado ? fmt(v.precio_mercado) : '—'}
+                        </span>
+                      </div>
+                      {v.precio_mercado_min && v.precio_mercado_max && (
+                        <div className="text-gray-400 whitespace-nowrap">
+                          {fmt(v.precio_mercado_min)} – {fmt(v.precio_mercado_max)}
+                        </div>
+                      )}
+                      {v.precio_mercado_cantidad && (
+                        <div className="text-gray-400">Chileautos · {v.precio_mercado_cantidad} pub.</div>
+                      )}
+                      {v.margen_porcentaje != null && (
+                        <div className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${
+                          v.margen_porcentaje >= 40
+                            ? 'bg-green-100 text-green-700'
+                            : v.margen_porcentaje >= 20
+                              ? 'bg-yellow-100 text-yellow-700'
+                              : 'bg-gray-100 text-gray-500'
+                        }`}>
+                          {v.margen_porcentaje > 0 ? '↑' : '↓'} {Math.abs(v.margen_porcentaje)}% margen
+                        </div>
+                      )}
                     </div>
                   </td>
 
-                  {/* Valor estimado de venta */}
-                  <td className="px-3 py-3 min-w-[170px]">
-                    {v.precio_mercado_min && v.precio_mercado_max ? (
-                      <div className="space-y-1">
-                        <div className="text-xs text-gray-400 whitespace-nowrap">Rango publicaciones</div>
-                        <div className="font-bold text-purple-700">{fmt(v.precio_mercado_min)}</div>
-                        <div className="text-purple-400 text-xs whitespace-nowrap">— {fmt(v.precio_mercado_max)}</div>
-                        <div className="text-gray-400 text-xs whitespace-nowrap">
-                          Chileautos · {v.precio_mercado_cantidad ?? '?'} pub.
-                        </div>
-                        {v.margen_porcentaje != null && (
-                          <div className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${
-                            v.margen_porcentaje >= 40
-                              ? 'bg-green-100 text-green-700'
-                              : v.margen_porcentaje >= 20
-                                ? 'bg-yellow-100 text-yellow-700'
-                                : 'bg-gray-100 text-gray-500'
-                          }`}>
-                            {v.margen_porcentaje > 0 ? '↑' : '↓'} {Math.abs(v.margen_porcentaje)}% margen
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-gray-300 text-xs italic">Sin datos</span>
-                    )}
+                  {/* Remates similares */}
+                  <td className="px-3 py-3 min-w-[200px]">
+                    <ModelosSimilares v={v} />
                   </td>
 
-                  {/* Deudas / multas */}
-                  <td className="px-3 py-3 min-w-[130px]">
+                  {/* Deudas */}
+                  <td className="px-3 py-3 min-w-[120px]">
                     {v.deuda_total ? (
                       <div className="space-y-0.5">
                         <div className="font-semibold text-red-600 text-xs whitespace-nowrap">
