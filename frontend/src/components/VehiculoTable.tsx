@@ -30,29 +30,52 @@ const fmtFecha = (iso: string | null) => {
     + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
 }
 
-function HistoricoLabel({ v }: { v: VehiculoAnalisis }) {
+// Aplica depreciación/apreciación del 7% anual para estimar precio ajustado por año
+function estimarPorAnio(precioRef: number, anioRef: number, anioVehiculo: number): number {
+  const diff = anioRef - anioVehiculo  // positivo = ref más nuevo (más caro)
+  return Math.round(precioRef * Math.pow(0.93, diff))
+}
+
+function HistoricoInfo({ v }: { v: VehiculoAnalisis }) {
+  // Opción 1: año exacto
   if (v.hist_exacto_precio && v.hist_exacto_cantidad) {
     return (
-      <span className="text-gray-400 text-xs">
-        Año {v.anio} · {v.hist_exacto_cantidad} remate{v.hist_exacto_cantidad !== 1 ? 's' : ''}
-      </span>
+      <div className="text-gray-400 text-xs">
+        Año exacto · {v.hist_exacto_cantidad} remate{v.hist_exacto_cantidad !== 1 ? 's' : ''}
+      </div>
     )
   }
+  // Opción 2: ±1 año
   if (v.hist_rango_precio && v.hist_rango_cantidad) {
     return (
-      <span className="text-gray-400 text-xs">
-        ±1 año · {v.hist_rango_cantidad} remate{v.hist_rango_cantidad !== 1 ? 's' : ''}
-      </span>
+      <div className="text-gray-400 text-xs">
+        Años ±1 · {v.hist_rango_cantidad} remate{v.hist_rango_cantidad !== 1 ? 's' : ''}
+      </div>
     )
   }
+  // Opción 3: año más cercano con ajuste por diferencia de años
   if (v.hist_ref_anio && v.hist_ref_precio) {
+    const anioVeh = v.anio ?? v.hist_ref_anio
+    const diff = Math.abs(v.hist_ref_anio - anioVeh)
+    const estimado = diff > 0 ? estimarPorAnio(v.hist_ref_precio, v.hist_ref_anio, anioVeh) : null
     return (
-      <span className="text-amber-500 text-xs">
-        Ref. año {v.hist_ref_anio}
-      </span>
+      <div className="space-y-0.5">
+        <div className="text-amber-500 text-xs font-medium">
+          Ref. más cercana: año {v.hist_ref_anio}
+        </div>
+        <div className="text-amber-400 text-xs">
+          Precio en {v.hist_ref_anio}: {fmt(v.hist_ref_precio)}
+        </div>
+        {estimado && diff > 0 && (
+          <div className="text-xs text-orange-500">
+            Est. año {anioVeh} (~7%/año · {diff} año{diff !== 1 ? 's' : ''}):
+            <span className="font-semibold ml-1">{fmt(estimado)}</span>
+          </div>
+        )}
+      </div>
     )
   }
-  return <span className="text-gray-300 text-xs">Sin historial</span>
+  return null
 }
 
 export function VehiculoTable({ vehiculos, loading }: Props) {
@@ -85,7 +108,7 @@ export function VehiculoTable({ vehiculos, loading }: Props) {
             <th className="px-4 py-3 text-left font-semibold">Año</th>
             <th className="px-4 py-3 text-left font-semibold">Condición</th>
             <th className="px-4 py-3 text-left font-semibold">Análisis de precio</th>
-            <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">Precio est. venta</th>
+            <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">Valor est. de venta</th>
             <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">Fecha remate</th>
             <th className="px-4 py-3 text-left font-semibold">Links</th>
           </tr>
@@ -140,24 +163,25 @@ export function VehiculoTable({ vehiculos, loading }: Props) {
               </td>
 
               {/* Análisis de precio */}
-              <td className="px-4 py-4 min-w-[200px]">
-                <div className="space-y-1 text-xs">
+              <td className="px-4 py-4 min-w-[220px]">
+                <div className="space-y-1.5 text-xs">
                   <div className="flex justify-between gap-4">
                     <span className="text-gray-400">Precio base</span>
                     <span className="font-medium text-gray-700">{fmt(v.precio_base)}</span>
                   </div>
-                  <div className="flex justify-between gap-4 items-center">
+                  <div className="flex justify-between gap-4">
                     <span className="text-gray-400">Prom. remates</span>
                     <span className={`font-medium ${v.precio_remate_promedio ? 'text-blue-600' : 'text-gray-300'}`}>
                       {fmt(v.precio_remate_promedio)}
                     </span>
                   </div>
                   {v.precio_remate_promedio && (
-                    <div className="flex justify-between gap-4 items-center">
-                      <HistoricoLabel v={v} />
-                    </div>
+                    <HistoricoInfo v={v} />
                   )}
-                  {v.precio_remate_promedio && (
+                  {!v.precio_remate_promedio && (
+                    <span className="text-gray-300">Sin historial en Karcal</span>
+                  )}
+                  {v.precio_sugerido_compra && (
                     <div className="flex justify-between gap-4 pt-1 border-t border-gray-100">
                       <span className="text-gray-400 font-medium">✅ Comprar a</span>
                       <span className="font-bold text-green-700">{fmt(v.precio_sugerido_compra)}</span>
