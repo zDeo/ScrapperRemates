@@ -16,10 +16,6 @@ function mapTransmision(t: string | null | undefined): string | null {
   return null
 }
 
-/**
- * Construye URL de Chileautos con filtros: año±1, km±15k, transmisión
- * Ejemplo: https://www.chileautos.cl/vehiculos/?q=(And.(C.Marca.Toyota._.Modelo.Yaris.).Tipo.Usado._.Ano.range(2017..2019)._.Transmisión.Manual._.Kilometraje.range(91531..121531).)&variant=merlin
- */
 function buildUrl(
   marca:       string,
   modelo:      string,
@@ -45,6 +41,38 @@ function buildUrl(
     const kmMax = km + KM_RANGO
     filters.push(`Kilometraje.range(${kmMin}..${kmMax})`)
   }
+
+  const q = encodeURIComponent(`(And.${filters.join('._.')}.`)
+  return `${BASE}/vehiculos/?q=${q}&variant=merlin`
+}
+
+/** Fallback: solo marca+modelo+año±1, sin filtros de km ni transmisión */
+function buildUrlFallback(marca: string, modelo: string, anio: number): string {
+  const marcaNorm  = marca.charAt(0).toUpperCase()  + marca.slice(1).toLowerCase()
+  const modeloBase = modelo.split(' ')[0]
+  const modeloNorm = modeloBase.charAt(0).toUpperCase() + modeloBase.slice(1).toLowerCase()
+
+  const filters = [
+    `(C.Marca.${marcaNorm}._.Modelo.${modeloNorm}.)`,
+    `Tipo.Usado`,
+    `Ano.range(${anio - 1}..${anio + 1})`,
+  ]
+
+  const q = encodeURIComponent(`(And.${filters.join('._.')}.`)
+  return `${BASE}/vehiculos/?q=${q}&variant=merlin`
+
+}
+
+/** Fallback 2: solo marca+modelo, sin año ni otros filtros */
+function buildUrlFallbackSinAnio(marca: string, modelo: string): string {
+  const marcaNorm  = marca.charAt(0).toUpperCase()  + marca.slice(1).toLowerCase()
+  const modeloBase = modelo.split(' ')[0]
+  const modeloNorm = modeloBase.charAt(0).toUpperCase() + modeloBase.slice(1).toLowerCase()
+
+  const filters = [
+    `(C.Marca.${marcaNorm}._.Modelo.${modeloNorm}.)`,
+    `Tipo.Usado`,
+  ]
 
   const q = encodeURIComponent(`(And.${filters.join('._.')}.`)
   return `${BASE}/vehiculos/?q=${q}&variant=merlin`
@@ -159,14 +187,33 @@ export async function scrapeChileautos(): Promise<void> {
   console.log(`[Chileautos] ${vehiculos.length} vehículos próximos a consultar`)
 
   for (const v of vehiculos as any[]) {
-    const url = buildUrl(v.marca, v.modelo, v.anio, v.kilometraje, v.transmision)
     console.log(`[Chileautos] ${v.marca} ${v.modelo} ${v.anio} (${v.kilometraje ?? '?'} km, ${v.transmision ?? '-'})`)
-    console.log(`  URL: ${url}`)
 
-    const precios = await extraerPrecios(url)
+    // Intento 1: filtros completos (año±1 + km±15k + transmisión)
+    let url = buildUrl(v.marca, v.modelo, v.anio, v.kilometraje, v.transmision)
+    console.log(`  URL 1: ${url}`)
+    let precios = await extraerPrecios(url)
+
+    // Intento 2: solo año±1 (sin km ni transmisión)
+    if (!precios) {
+      console.log(`  → Sin resultados, intentando sin km/transmisión...`)
+      url = buildUrlFallback(v.marca, v.modelo, v.anio)
+      console.log(`  URL 2: ${url}`)
+      precios = await extraerPrecios(url)
+      await sleep(DELAY_MS)
+    }
+
+    // Intento 3: solo marca+modelo sin año
+    if (!precios) {
+      console.log(`  → Sin resultados, intentando sin año...`)
+      url = buildUrlFallbackSinAnio(v.marca, v.modelo)
+      console.log(`  URL 3: ${url}`)
+      precios = await extraerPrecios(url)
+      await sleep(DELAY_MS)
+    }
 
     if (!precios) {
-      console.log(`  → Sin resultados`)
+      console.log(`  → Sin resultados en ningún intento`)
       await sleep(DELAY_MS)
       continue
     }
