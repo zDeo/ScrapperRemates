@@ -2,6 +2,17 @@
 -- Orden: misma transmisión → mismo combustible → año más cercano
 -- Expone características del vehículo de referencia para mostrar diferencias
 
+-- Incluye cambios de 007 por si no fue ejecutada antes
+alter table precios_mercado
+  add column if not exists precio_min             bigint,
+  add column if not exists precio_max             bigint,
+  add column if not exists vehiculo_id            uuid references vehiculos(id) on delete cascade,
+  add column if not exists cantidad_publicaciones integer;
+
+create unique index if not exists precios_mercado_vehiculo_fuente_idx
+  on precios_mercado (vehiculo_id, fuente)
+  where vehiculo_id is not null;
+
 drop view if exists analisis_vehiculos;
 
 create or replace view analisis_vehiculos as
