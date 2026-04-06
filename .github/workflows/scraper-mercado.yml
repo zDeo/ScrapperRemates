@@ -27,7 +27,7 @@ jobs:
 
       - name: Instalar Chromium para Playwright
         working-directory: scrapers
-        run: npx playwright install chromium --with-deps
+        run: npx rebrowser-playwright install chromium --with-deps
 
       - name: Correr scraper de precios de mercado
         working-directory: scrapers
