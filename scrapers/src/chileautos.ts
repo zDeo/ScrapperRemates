@@ -80,16 +80,37 @@ async function cerrarPopup(page: Page): Promise<void> {
   } catch { /* sin popup */ }
 }
 
+async function esperarCloudflare(page: Page): Promise<void> {
+  // Detectar si Cloudflare sirvió un challenge (JS challenge / Bot Management)
+  const esChallenge = await page.evaluate(() =>
+    !!document.querySelector('script[data-cfasync]') ||
+    document.title === 'Just a moment...' ||
+    document.title === 'chileautos.cl' && !document.querySelector('main, #app, .listing')
+  ).catch(() => false)
+
+  if (esChallenge) {
+    console.log('  [CF] Challenge detectado, esperando resolución (~10s)...')
+    // Esperar que el JS de CF resuelva y redirija a la página real
+    await Promise.race([
+      page.waitForURL(url => !url.includes('cdn-cgi'), { timeout: 15_000 }).catch(() => {}),
+      page.waitForSelector('main, #app, [class*="listing"], a[href*="/detalles/"]', { timeout: 15_000 }).catch(() => {}),
+    ])
+    await sleep(3_000) // Margen adicional para que el SPA cargue
+  }
+}
+
 async function extraerLinksPublicaciones(page: Page, listadoUrl: string, debug = false): Promise<string[]> {
   try {
-    // networkidle espera a que el JS cargue los cards dinámicos
-    await page.goto(listadoUrl, { waitUntil: 'networkidle', timeout: 45_000 })
+    await page.goto(listadoUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+
+    // Esperar que Cloudflare resuelva el challenge si aplica
+    await esperarCloudflare(page)
 
     // Cerrar popup antes de que bloquee la carga de fichas
     await cerrarPopup(page)
 
-    // Espera adicional por si el SPA necesita renderizar tras el popup
-    await sleep(2_000)
+    // Espera adicional para que el SPA renderice los cards
+    await sleep(3_000)
 
     // Extraer links via DOM renderizado
     const links: string[] = await page.evaluate(() => {
