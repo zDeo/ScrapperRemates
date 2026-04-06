@@ -28,13 +28,21 @@ function attrVal(item: MLItem, id: string): string | null {
 }
 
 async function buscarEnML(marca: string, modelo: string, anio: number | null): Promise<MLItem[]> {
-  // Construir query — solo tokens significativos del modelo
-  const query = encodeURIComponent(`${marca} ${modelo.split(' ').slice(0, 2).join(' ')}`)
+  // Construir query — marca + tokens significativos del modelo (sin stopwords)
+  const SKIP = new Set(['NEW','ALL','THE','AND','DE','DEL'])
+  const tokens = modelo.split(' ').filter(t => t && !SKIP.has(t.toUpperCase()) && !/^\d+[\.,]\d+$/.test(t))
+  const query = encodeURIComponent(`${marca} ${tokens.slice(0, 2).join(' ')}`)
 
   const url = `${BASE}/sites/${SITE}/search?q=${query}&condition=used&limit=${MAX_ITEMS}`
 
   try {
-    const res  = await fetch(url, { headers: { 'Accept': 'application/json' } })
+    const res  = await fetch(url, {
+      headers: {
+        'Accept':          'application/json',
+        'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept-Language': 'es-CL,es;q=0.9',
+      },
+    })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json() as MLResponse
 
