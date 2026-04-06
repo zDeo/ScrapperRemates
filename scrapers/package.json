@@ -6,9 +6,11 @@
     "scrape:remates": "tsx src/run-remates.ts",
     "scrape:historico": "tsx src/run-historico.ts",
     "scrape:mercado": "tsx src/run-mercado.ts",
+    "agentes": "tsx src/run-agentes.ts",
     "test": "vitest run"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.43.0",
     "cheerio": "^1.0.0",
     "node-fetch": "^3.3.2",
