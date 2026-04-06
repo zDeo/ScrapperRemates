@@ -6,6 +6,25 @@ const model = genai.getGenerativeModel({ model: 'gemini-2.0-flash' })
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
 
+async function conRetry<T>(fn: () => Promise<T>, intentos = 3): Promise<T> {
+  for (let i = 0; i < intentos; i++) {
+    try {
+      return await fn()
+    } catch (err: any) {
+      const msg = String(err?.message ?? '')
+      const delay = msg.match(/retry in (\d+)s/i)?.[1]
+      if (msg.includes('429') && i < intentos - 1) {
+        const espera = delay ? parseInt(delay) * 1000 : (i + 1) * 60_000
+        console.log(`  [Rate limit] Esperando ${espera / 1000}s antes de reintentar...`)
+        await sleep(espera)
+        continue
+      }
+      throw err
+    }
+  }
+  throw new Error('Sin intentos restantes')
+}
+
 // ─── Agente 1: Análisis de imagen (daño mecánico visual) ─────────────────────
 
 async function analizarImagen(imagenUrl: string): Promise<{
@@ -40,10 +59,10 @@ Precios en CLP (pesos chilenos). Si no puedes ver daños, usa sin_datos.`
     const base64 = Buffer.from(buffer).toString('base64')
     const mimeType = imageResp.headers.get('content-type') || 'image/jpeg'
 
-    const result = await model.generateContent([
+    const result = await conRetry(() => model.generateContent([
       { inlineData: { mimeType: mimeType as any, data: base64 } },
       prompt,
-    ])
+    ]))
 
     const texto = result.response.text().trim()
     const jsonStr = texto.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
@@ -104,7 +123,7 @@ Criterios:
 - analizar: margen 5-20% o datos incompletos pero prometedor
 - evitar: margen < 5%, pérdida probable, o deudas muy altas`
 
-    const result = await model.generateContent(prompt)
+    const result = await conRetry(() => model.generateContent(prompt))
     const texto = result.response.text().trim()
     const jsonStr = texto.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
     return JSON.parse(jsonStr)
@@ -160,7 +179,7 @@ export async function correrAgentesAnalisis(): Promise<void> {
     const imagenAnalisis = await analizarImagen(v.imagen_url)
     console.log(`  ✓ Daño: ${imagenAnalisis.dano_nivel} | ${imagenAnalisis.dano_descripcion}`)
 
-    await sleep(1_500) // respetar rate limit Gemini
+    await sleep(5_000) // respetar rate limit Gemini free tier (15 RPM)
 
     // ── Agente 2: recomendación de compra ────────────────────────────────────
     console.log('  → Agente 2: generando recomendación...')
@@ -179,7 +198,7 @@ export async function correrAgentesAnalisis(): Promise<void> {
     })
     console.log(`  ✓ Decisión: ${recomendacion.decision} | Margen: ${recomendacion.margen_estimado ?? '?'}%`)
 
-    await sleep(1_500)
+    await sleep(5_000)
 
     // ── Guardar resultados en Supabase ────────────────────────────────────────
     const { error: uErr } = await supabase
