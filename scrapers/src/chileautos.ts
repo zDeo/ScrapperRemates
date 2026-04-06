@@ -1,6 +1,11 @@
-import { chromium, Browser, Page } from 'playwright'
+import { chromium } from 'playwright-extra'
+import StealthPlugin from 'puppeteer-extra-plugin-stealth'
+import type { Page } from 'playwright'
 import { PrecioMercadoInput } from './types.js'
 import { supabase } from './supabase-client.js'
+
+// Registrar stealth una sola vez
+chromium.use(StealthPlugin())
 
 const BASE      = 'https://www.chileautos.cl'
 const DELAY_MS  = 2_500
@@ -8,7 +13,7 @@ const KM_RANGO  = 50_000
 const ANIO_RANGO = 2
 const MAX_FICHAS = 10   // máximo de fichas individuales a visitar por vehículo
 
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
 
@@ -20,83 +25,107 @@ function mapTransmision(t: string | null | undefined): string | null {
   return null
 }
 
-// ─── Paso 1: Búsqueda web → URL de listado Chileautos ────────────────────────
+// ─── Paso 1: Construir URL de listado Chileautos desde marca/modelo ──────────
+
+const STOPWORDS = new Set([
+  '2WD','4WD','4X4','4X2','AT','MT','TDI','HDI','HB','DC','DCAB','CREW','CAB',
+  'GLX','GLS','GLI','GLE','SXT','LTZ','LT','LS','RS','GT','GTS','STI','TRD',
+  'AUT','MAN','AWD','RWD','FWD','SDN','SW','PLUS','PRO','MAX','SPORT','TURBO',
+  'DIESEL','GASOLINA','AUTO','III','II','IV','V','VI','S','E','SE',
+])
 
 /**
- * Extrae la primera URL de chileautos.cl/vehiculos/ (no detalle) desde un HTML.
- * Funciona con Google, DuckDuckGo y cualquier página con links en texto.
+ * Devuelve variantes de URL Chileautos a probar, de más específica a más amplia.
+ * PORSCHE / MACAN GTS III 4X4 2.9 AUT →
+ *   [0] .../porsche/macan/          (modelo base)
+ *   [1] .../porsche/                (solo marca)
  */
-function extraerUrlChileautos(html: string): string | null {
-  // Patrón 1: URL completa en href o texto (Google redirect /url?q=... o link directo)
-  for (const m of html.matchAll(/(?:q=|href=["'])(https?:\/\/(?:www\.)?chileautos\.cl\/vehiculos\/[^"'&\s<>]+)/g)) {
-    const url = decodeURIComponent(m[1])
-    if (!url.includes('/detalles/')) return url.split('?')[0]
+function buildUrlsChileautos(marca: string, modelo: string): string[] {
+  const tokens = modelo.split(' ').filter(t => t && !STOPWORDS.has(t.toUpperCase()) && !/^\d+[\.,]\d+$/.test(t))
+  const base   = slugify(marca)
+  const urls: string[] = []
+
+  // Variante 1: marca + primer token real del modelo
+  if (tokens.length > 0) {
+    urls.push(`${BASE}/vehiculos/autos-veh%C3%ADculo/${base}/${slugify(tokens[0])}/`)
   }
-  // Patrón 2: URL relativa
-  for (const m of html.matchAll(/href=["'](\/vehiculos\/autos-veh[^"'?]+)/g)) {
-    return `https://www.chileautos.cl${m[1]}`
+  // Variante 2: marca + dos tokens
+  if (tokens.length > 1) {
+    urls.push(`${BASE}/vehiculos/autos-veh%C3%ADculo/${base}/${slugify(tokens[0])}-${slugify(tokens[1])}/`)
   }
-  return null
-}
+  // Variante 3: solo marca
+  urls.push(`${BASE}/vehiculos/autos-veh%C3%ADculo/${base}/`)
 
-async function buscarUrlViaWeb(browser: Browser, marca: string, modelo: string): Promise<string | null> {
-  const query = `${modelo} ${marca} chileautos`
-
-  // Intentar DuckDuckGo primero (más amigable con bots)
-  const engines = [
-    `https://duckduckgo.com/?q=${encodeURIComponent(query)}&ia=web`,
-    `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10&hl=es`,
-  ]
-
-  const page = await browser.newPage()
-  try {
-    await page.setExtraHTTPHeaders({ 'User-Agent': USER_AGENT, 'Accept-Language': 'es-CL,es;q=0.9' })
-
-    for (const searchUrl of engines) {
-      const motor = searchUrl.includes('duckduckgo') ? 'DDG' : 'Google'
-      console.log(`  [${motor}] "${query}"`)
-      try {
-        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20_000 })
-        await sleep(3_000)
-        const html  = await page.content()
-        const found = extraerUrlChileautos(html)
-        if (found) {
-          console.log(`  [${motor}] → ${found}`)
-          return found
-        }
-        console.log(`  [${motor}] → sin resultados, probando siguiente motor...`)
-      } catch (err) {
-        console.error(`  [${motor}] Error: ${(err as Error).message}`)
-      }
-    }
-    return null
-  } finally {
-    await page.close()
-  }
+  return [...new Set(urls)]
 }
 
 // ─── Paso 2: Desde el listado, extraer links de fichas individuales ────────────
 
-async function extraerLinksPublicaciones(page: Page, listadoUrl: string): Promise<string[]> {
+async function cerrarPopup(page: Page): Promise<void> {
+  // Popup "Te invitamos a ser parte de nuestro cambio" → botón "Cerrar invitación"
   try {
-    await page.goto(listadoUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-    await sleep(8_000)  // Esperar carga JS completa
+    const selector = [
+      'button:has-text("Cerrar invitación")',
+      'button:has-text("Cerrar")',
+      'button:has-text("cerrar")',
+      '[class*="close"]',
+      '[aria-label*="close"]',
+      '[aria-label*="cerrar"]',
+    ].join(', ')
 
-    const html  = await page.content()
-    const links = new Set<string>()
+    await page.waitForSelector(selector, { timeout: 5_000 })
+    await page.click(selector, { timeout: 2_000 }).catch(() => {})
+    console.log('  [Popup] cerrado')
+    await sleep(800)
+  } catch { /* sin popup */ }
+}
 
-    // Regex sobre el HTML completo — más robusto que selectores CSS
-    // Patrón 1: URL completa en href o texto
-    for (const m of html.matchAll(/["'](https?:\/\/(?:www\.)?chileautos\.cl\/vehiculos\/detalles\/[^"'?#]+)/g)) {
-      links.add(m[1])
+async function extraerLinksPublicaciones(page: Page, listadoUrl: string, debug = false): Promise<string[]> {
+  try {
+    // networkidle espera a que el JS cargue los cards dinámicos
+    await page.goto(listadoUrl, { waitUntil: 'networkidle', timeout: 45_000 })
+
+    // Cerrar popup antes de que bloquee la carga de fichas
+    await cerrarPopup(page)
+
+    // Espera adicional por si el SPA necesita renderizar tras el popup
+    await sleep(2_000)
+
+    // Extraer links via DOM renderizado
+    const links: string[] = await page.evaluate(() => {
+      const urls = new Set<string>()
+      document.querySelectorAll('a[href]').forEach(el => {
+        const href = (el as HTMLAnchorElement).href ?? ''
+        if (href.includes('/vehiculos/detalles/') || href.includes('/detalles/')) {
+          urls.add(href.split('?')[0].split('#')[0])
+        }
+      })
+      return [...urls]
+    })
+
+    // Fallback: regex sobre el HTML si el DOM no dio resultados
+    if (links.length === 0) {
+      const html = await page.content()
+      for (const m of html.matchAll(/["']((?:https?:\/\/(?:www\.)?chileautos\.cl)?\/vehiculos\/detalles\/[^"'?#\s]+)/g)) {
+        const url = m[1].startsWith('http') ? m[1] : `https://www.chileautos.cl${m[1]}`
+        links.push(url)
+      }
     }
-    // Patrón 2: URL relativa
-    for (const m of html.matchAll(/["'](\/vehiculos\/detalles\/[^"'?#]+)/g)) {
-      links.add(`https://www.chileautos.cl${m[1]}`)
+
+    // Screenshot de diagnóstico cuando no se encuentran resultados
+    if (links.length === 0 && debug) {
+      const ts   = Date.now()
+      const path = `/tmp/chileautos_debug_${ts}.png`
+      await page.screenshot({ path, fullPage: false })
+      console.log(`  [Debug] Screenshot guardado: ${path}`)
+      // Imprimir primeros 500 chars del HTML para ver qué devolvió el server
+      const html = await page.content()
+      console.log(`  [Debug] HTML inicio: ${html.slice(0, 500)}`)
     }
 
-    console.log(`  [Listado] ${links.size} publicaciones encontradas en: ${listadoUrl}`)
-    return [...links].slice(0, MAX_FICHAS)
+    const unicos = [...new Set(links)].slice(0, MAX_FICHAS)
+    console.log(`  [Listado] ${unicos.length} publicaciones encontradas en: ${listadoUrl}`)
+    return unicos
   } catch (err) {
     console.error(`  [Listado] Error: ${(err as Error).message}`)
     return []
@@ -177,17 +206,9 @@ function calcularRango(precios: number[]): PrecioRango | null {
   }
 }
 
-// ─── Fallbacks de URL si Google no encuentra nada ────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function slugify(s: string) { return s.toLowerCase().replace(/\s+/g, '-') }
-
-function buildUrlRuta(marca: string, modelo: string): string {
-  return `${BASE}/vehiculos/autos-veh%C3%ADculo/${slugify(marca)}/${slugify(modelo.split(' ')[0])}/`
-}
-
-function buildUrlRutaMarca(marca: string): string {
-  return `${BASE}/vehiculos/autos-veh%C3%ADculo/${slugify(marca)}/`
-}
 
 function agregarFiltroAnio(baseUrl: string, anio: number): string {
   const url = baseUrl.split('?')[0].replace(/\/$/, '')
@@ -215,50 +236,55 @@ export async function scrapeChileautos(): Promise<void> {
 
   console.log(`[Chileautos] ${vehiculos.length} vehículos próximos a consultar`)
 
-  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
-  const page    = await browser.newPage()
-  await page.setExtraHTTPHeaders({ 'User-Agent': USER_AGENT, 'Accept-Language': 'es-CL,es;q=0.9' })
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-dev-shm-usage',
+      '--disable-infobars',
+      '--window-size=1366,768',
+    ],
+  })
+  const context = await browser.newContext({
+    userAgent: USER_AGENT,
+    locale: 'es-CL',
+    timezoneId: 'America/Santiago',
+    viewport: { width: 1366, height: 768 },
+    extraHTTPHeaders: { 'Accept-Language': 'es-CL,es;q=0.9' },
+  })
+  const page = await context.newPage()
+
+  // Ocultar WebDriver flag adicional (doble capa con stealth)
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
+  })
 
   try {
     for (const v of vehiculos as any[]) {
       console.log(`\n[Chileautos] ${v.marca} ${v.modelo} ${v.anio}`)
 
-      // ── 1. Google → URL de listado ─────────────────────────────────────────
-      let listadoUrl = await buscarUrlViaWeb(browser, v.marca, v.modelo)
+      // ── 1. Construir URLs candidatas desde marca/modelo ────────────────────
+      const candidatas = buildUrlsChileautos(v.marca, v.modelo)
+      console.log(`  [URLs] Candidatas: ${candidatas.join(' | ')}`)
 
-      // Si Google da una ficha individual, subir un nivel al listado
-      if (listadoUrl?.includes('/detalles/')) {
-        listadoUrl = listadoUrl.split('/detalles/')[0] + '/'
-        console.log(`  [URL] Subida a listado: ${listadoUrl}`)
-      }
+      // ── 2. Probar cada URL (con y sin filtro año) hasta obtener fichas ─────
+      let fichaLinks: string[] = []
 
-      // Fallbacks si Google no encuentra nada
-      if (!listadoUrl) {
-        listadoUrl = buildUrlRuta(v.marca, v.modelo)
-        console.log(`  [Fallback] ${listadoUrl}`)
-      }
+      for (const listadoUrl of candidatas) {
+        // Primero intentar con filtro de año
+        if (v.anio) {
+          const urlConAnio = agregarFiltroAnio(listadoUrl, v.anio)
+          await sleep(DELAY_MS)
+          fichaLinks = await extraerLinksPublicaciones(page, urlConAnio, true)
+          if (fichaLinks.length > 0) break
+          console.log(`  [Listado] Sin resultados con año, probando sin filtro...`)
+        }
 
-      // Si hay año, agregar filtro de año al listado
-      const listadoUrlConAnio = v.anio ? agregarFiltroAnio(listadoUrl, v.anio) : listadoUrl
-
-      await sleep(DELAY_MS)
-
-      // ── 2. Ir al listado → extraer links de fichas ─────────────────────────
-      let fichaLinks = await extraerLinksPublicaciones(page, listadoUrlConAnio)
-
-      // Si no hay fichas con filtro año, probar sin filtro
-      if (fichaLinks.length === 0 && listadoUrlConAnio !== listadoUrl) {
-        console.log(`  [Listado] Sin resultados con año, probando sin filtro...`)
+        // Sin filtro de año
         await sleep(DELAY_MS)
-        fichaLinks = await extraerLinksPublicaciones(page, listadoUrl)
-      }
-
-      // Último recurso: solo marca
-      if (fichaLinks.length === 0) {
-        const urlMarca = buildUrlRutaMarca(v.marca)
-        console.log(`  [Fallback marca] ${urlMarca}`)
-        await sleep(DELAY_MS)
-        fichaLinks = await extraerLinksPublicaciones(page, urlMarca)
+        fichaLinks = await extraerLinksPublicaciones(page, listadoUrl, true)
+        if (fichaLinks.length > 0) break
       }
 
       if (fichaLinks.length === 0) {
@@ -306,6 +332,7 @@ export async function scrapeChileautos(): Promise<void> {
     }
   } finally {
     await page.close()
+    await context.close()
     await browser.close()
   }
 
