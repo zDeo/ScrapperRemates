@@ -1,11 +1,7 @@
-import { chromium } from 'playwright-extra'
-import StealthPlugin from 'puppeteer-extra-plugin-stealth'
-import type { Page } from 'playwright'
+import { chromium } from 'rebrowser-playwright'
+import type { Page } from 'rebrowser-playwright'
 import { PrecioMercadoInput } from './types.js'
 import { supabase } from './supabase-client.js'
-
-// Registrar stealth una sola vez
-chromium.use(StealthPlugin())
 
 const BASE      = 'https://www.chileautos.cl'
 const DELAY_MS  = 2_500
