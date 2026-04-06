@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { VehiculoAnalisis } from '../types'
 import { ImagenModal } from './ImagenModal'
 
@@ -123,6 +124,7 @@ function ModelosSimilares({ v }: { v: VehiculoAnalisis }) {
 
 export function VehiculoTable({ vehiculos, loading }: Props) {
   const [modalData, setModalData] = useState<{ images: string[]; alt: string } | null>(null)
+  const navigate = useNavigate()
 
   if (loading) {
     return (
@@ -162,7 +164,7 @@ export function VehiculoTable({ vehiculos, loading }: Props) {
               <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Condición</th>
               <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Precios</th>
               <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Remates similares</th>
-              <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Deudas</th>
+              <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Detalle</th>
               <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Fecha remate</th>
               <th className="px-3 py-3 text-left font-semibold">Links</th>
             </tr>
@@ -296,19 +298,18 @@ export function VehiculoTable({ vehiculos, loading }: Props) {
                     <ModelosSimilares v={v} />
                   </td>
 
-                  {/* Deudas */}
-                  <td className="px-3 py-3 min-w-[120px]">
-                    {v.deuda_total ? (
-                      <div className="space-y-0.5">
-                        <div className="font-semibold text-red-600 text-xs whitespace-nowrap">
-                          {fmt(v.deuda_total)}
-                        </div>
-                        {v.deuda_detalle && (
-                          <div className="text-gray-400 text-xs leading-tight">{v.deuda_detalle}</div>
-                        )}
+                  {/* Detalle */}
+                  <td className="px-3 py-3">
+                    <button
+                      onClick={() => navigate(`/vehiculo/${v.id}`)}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-white bg-slate-700 hover:bg-slate-900 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+                    >
+                      Ver detalle →
+                    </button>
+                    {v.deuda_total && (
+                      <div className="mt-1.5 text-xs font-semibold text-red-500 whitespace-nowrap">
+                        ⚠ {fmt(v.deuda_total)}
                       </div>
-                    ) : (
-                      <span className="text-gray-300 text-xs">—</span>
                     )}
                   </td>
 
